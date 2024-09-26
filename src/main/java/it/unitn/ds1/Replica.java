@@ -1,22 +1,8 @@
 package it.unitn.ds1;
 
-import akka.actor.ActorRef;
 import akka.actor.AbstractActor;
-import akka.actor.Cancellable;
 import akka.actor.Props;
-import ch.qos.logback.core.subst.Token;
-import scala.concurrent.duration.Duration;
 
-import java.io.Serializable;
-import java.util.concurrent.TimeUnit;
-import java.util.Random;
-import java.util.Set;
-import java.util.HashSet;
-import java.util.List;
-import java.util.ArrayList;
-import java.lang.Thread;
-import java.lang.InterruptedException;
-import java.util.Collections;
 
 
 public class Replica extends AbstractActor {

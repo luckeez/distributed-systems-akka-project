@@ -2,13 +2,9 @@ package it.unitn.ds1;
 
 import akka.actor.ActorRef;
 import akka.actor.ActorSystem;
-import akka.actor.Cancellable;
-import scala.concurrent.duration.Duration;
 
-import java.util.concurrent.TimeUnit;
 import java.util.List;
 import java.util.ArrayList;
-import java.io.IOException;
 
 public class ReplicaSystem {
     final static int N = 10;
