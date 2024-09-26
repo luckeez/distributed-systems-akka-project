@@ -31,7 +31,7 @@ compileJava {
     options.compilerArgs += ["-Xlint:deprecation"]
 }
 
-mainClassName = "it.unitn.ds1.BankSystem"
+mainClassName = "it.unitn.ds1.ReplicaSystem"
 
 run {
     standardInput = System.in

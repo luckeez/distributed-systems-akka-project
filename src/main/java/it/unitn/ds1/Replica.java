@@ -4,6 +4,7 @@ import akka.actor.ActorRef;
 import akka.actor.AbstractActor;
 import akka.actor.Cancellable;
 import akka.actor.Props;
+import ch.qos.logback.core.subst.Token;
 import scala.concurrent.duration.Duration;
 
 import java.io.Serializable;
@@ -30,5 +31,14 @@ public class Replica extends AbstractActor {
     static public Props props(int id){
         return Props.create(Replica.class, () -> new Replica(id));
     }
+
+
+      // Here we define the mapping between the received message types
+  // and our actor methods
+  @Override
+  public Receive createReceive() {
+    return receiveBuilder()
+      .build();
+  }
 
 }
