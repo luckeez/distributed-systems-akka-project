@@ -1,0 +1,27 @@
+> Task :compileJava UP-TO-DATE
+> Task :processResources NO-SOURCE
+> Task :classes UP-TO-DATE
+
+> Task :run
+14:12:31.827 [banksystem-akka.actor.default-dispatcher-5] INFO akka.event.slf4j.Slf4jLogger - Slf4jLogger started
+>>> Press ENTER to exit <<<
+3: starting with 10 peer(s)
+2: starting with 10 peer(s)
+4: starting with 10 peer(s)
+6: starting with 10 peer(s)
+7: starting with 10 peer(s)
+1: starting with 10 peer(s)
+5: starting with 10 peer(s)
+0: starting with 10 peer(s)
+8: starting with 10 peer(s)
+9: starting with 10 peer(s)
+14:12:54.789 [banksystem-akka.actor.default-dispatcher-7] INFO akka.actor.CoordinatedShutdown - Running CoordinatedShutdown with reason [ActorSystemTerminateReason]
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 9.0.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+For more on this, please refer to https://docs.gradle.org/8.7/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+
+BUILD SUCCESSFUL in 25s
+2 actionable tasks: 1 executed, 1 up-to-date
