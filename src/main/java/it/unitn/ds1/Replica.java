@@ -8,6 +8,8 @@ import java.util.Collections;
 
 import akka.actor.AbstractActor;
 import akka.actor.Props;
+import it.unitn.ds1.Client.ReadRequestMsg;
+import it.unitn.ds1.Client.WriteRequestMsg;
 import akka.actor.ActorRef;
 
 
@@ -19,6 +21,7 @@ public class Replica extends AbstractActor {
     private boolean isCoordinator;
     private final int crashP = 5;
     private final Random rnd;
+    private ActorRef coordinator;
 
     // CONSTRUCTOR
     public Replica(int id, boolean isCoordinator){
@@ -42,6 +45,13 @@ public class Replica extends AbstractActor {
         }
     }
 
+    public static class ReadResponseMsg implements Serializable{
+        public final int v;
+        public ReadResponseMsg(int v){
+            this.v = v;
+        }
+    }
+
 
 
     /*------------- Actor logic -------------------------------------------- */
@@ -51,6 +61,21 @@ public class Replica extends AbstractActor {
             if (!a.equals(getSelf())){
                 this.peers.add(a);  // copy all replicas except for self
             }
+        }
+    }
+
+    private void onReadRequestMsg(ReadRequestMsg msg){
+        ActorRef to = msg.sender;
+        to.tell(new ReadResponseMsg(this.v), getSelf());
+    }
+
+    private void onWriteRequestMsg(WriteRequestMsg msg){
+        // correctly handle both client messages and replicas messages
+        if (this.isCoordinator){
+            // TODO - UPDATE V
+        } else {
+            // forward the message to coordinator
+            this.coordinator.tell(msg, getSelf());
         }
     }
 
@@ -74,6 +99,8 @@ public class Replica extends AbstractActor {
     public Receive createReceive() {
         return receiveBuilder()
             .match(JoinGroupMsg.class, this::onJoinGroupMsg)
+            .match(ReadRequestMsg.class, this::onReadRequestMsg)
+            .match(WriteRequestMsg.class, this::onWriteRequestMsg)
         .build();
     }
 
