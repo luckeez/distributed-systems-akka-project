@@ -40,7 +40,15 @@ public class Replica extends AbstractActor {
 
 
 
+    /*------------- Actor logic -------------------------------------------- */
 
+    private void onJoinGroupMsg(JoinGroupMsg msg){
+        for (ActorRef a : msg.group){
+            if (!a.equals(getSelf())){
+                this.peers.add(a);  // copy all replicas except for self
+            }
+        }
+    }
 
 
 
@@ -57,7 +65,7 @@ public class Replica extends AbstractActor {
     @Override
     public Receive createReceive() {
         return receiveBuilder()
+            .match(JoinGroupMsg.class, this::onJoinGroupMsg)
         .build();
     }
-
 }
