@@ -3,6 +3,7 @@ package it.unitn.ds1;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Random;
 import java.util.Collections;
 
 import akka.actor.AbstractActor;
@@ -13,14 +14,17 @@ import akka.actor.ActorRef;
 
 public class Replica extends AbstractActor {
     private int id;
-    private String v;
+    private int v;
     private List<ActorRef> peers = new ArrayList<>();
     private boolean isCoordinator;
+    private final int crashP = 5;
+    private final Random rnd;
 
     // CONSTRUCTOR
     public Replica(int id, boolean isCoordinator){
         this.id = id;
         this.isCoordinator = isCoordinator;
+        this.rnd = new Random();
     }
 
     static public Props props(int id, boolean isCoordinator){
@@ -51,14 +55,18 @@ public class Replica extends AbstractActor {
     }
 
 
+    private void decideCrash(){
+        if (this.rnd.nextInt(100) <= this.crashP){
+            crash();
+        }
+    }
 
 
+    private void crash(){
+        getContext().become(crashed());
+    }
 
-
-
-
-
-
+    /* -------------------------------------------------------------- */
 
     // Here we define the mapping between the received message types
     // and our actor methods
@@ -68,4 +76,10 @@ public class Replica extends AbstractActor {
             .match(JoinGroupMsg.class, this::onJoinGroupMsg)
         .build();
     }
+
+    final AbstractActor.Receive crashed(){
+        return receiveBuilder()
+            .matchAny(msg -> {})
+            .build();
+    }    
 }
