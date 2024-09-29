@@ -7,6 +7,7 @@ import java.util.Random;
 import java.util.Collections;
 
 import akka.actor.AbstractActor;
+import akka.actor.Actor;
 import akka.actor.Props;
 import it.unitn.ds1.Client.ReadRequestMsg;
 import it.unitn.ds1.Client.WriteRequestMsg;
@@ -22,12 +23,18 @@ public class Replica extends AbstractActor {
     private final int crashP = 5;
     private final Random rnd;
     private ActorRef coordinator;
+    private int epoch = 0;
+    private int seqNum = 0;
+    private int quorumSize;
+    private int ackCount = 0;
+    private UpdateMsg pendingUpdate;
 
     // CONSTRUCTOR
     public Replica(int id, boolean isCoordinator){
         this.id = id;
         this.isCoordinator = isCoordinator;
         this.rnd = new Random();
+        this.quorumSize = (10 / 2) + 1; // Majority quorum
     }
 
     static public Props props(int id, boolean isCoordinator){
@@ -41,7 +48,7 @@ public class Replica extends AbstractActor {
     public static class JoinGroupMsg implements Serializable {
         public final List<ActorRef> group;   // an array of group members
         public JoinGroupMsg(List<ActorRef> group) {
-        this.group = Collections.unmodifiableList(new ArrayList<ActorRef>(group));
+            this.group = Collections.unmodifiableList(new ArrayList<ActorRef>(group));
         }
     }
 
@@ -52,6 +59,37 @@ public class Replica extends AbstractActor {
         }
     }
 
+    public static class UpdateMsg implements Serializable {
+        public final int epoch;
+        public final int seqNum;
+        public final int newV;
+
+        public UpdateMsg(int epoch, int seqNum, int newV) {
+            this.epoch = epoch;
+            this.seqNum = seqNum;
+            this.newV = newV;
+        }
+    }
+
+    public static class AckMsg implements Serializable {
+        public final int epoch;
+        public final int seqNum;
+
+        public AckMsg(int epoch, int seqNum) {
+            this.epoch = epoch;
+            this.seqNum = seqNum;
+        }
+    }
+
+    public static class WriteOkMsg implements Serializable {
+        public final int epoch;
+        public final int seqNum;
+
+        public WriteOkMsg(int epoch, int seqNum) {
+            this.epoch = epoch;
+            this.seqNum = seqNum;
+        }
+    }
 
 
     /*------------- Actor logic -------------------------------------------- */
@@ -72,10 +110,38 @@ public class Replica extends AbstractActor {
     private void onWriteRequestMsg(WriteRequestMsg msg){
         // correctly handle both client messages and replicas messages
         if (this.isCoordinator){
-            // TODO - UPDATE V
+            this.seqNum += 1;
+            this.pendingUpdate = new UpdateMsg(this.epoch, this.seqNum, msg.proposedV);
+            this.ackCount = 0;
+
+            // Broadcast UPDATE message to all replicas
+            for (ActorRef peer: this.peers){
+                peer.tell(this.pendingUpdate, getSelf());
+            }
         } else {
             // forward the message to coordinator
             this.coordinator.tell(msg, getSelf());
+        }
+    }
+
+    private void onUpdateMsg(UpdateMsg msg) {
+        getSender().tell(new AckMsg(msg.epoch, msg.seqNum), getSelf());
+    }
+
+    private void onAckMsg (AckMsg ack){
+        if (this.isCoordinator && ack.epoch == this.epoch && ack.seqNum == this.seqNum) {
+            this.ackCount += 1;
+            if (this.ackCount >= this.quorumSize) {
+                for (ActorRef peer: this.peers){
+                    peer.tell(new WriteOkMsg(this.epoch, this.seqNum), getSelf());
+                }
+            }
+        }
+    }
+
+    private void onWriteOkMsg(WriteOkMsg msg) {
+        if (msg.epoch == this.epoch && msg.seqNum == this.seqNum) {
+            this.v = this.pendingUpdate.newV;
         }
     }
 
@@ -101,7 +167,10 @@ public class Replica extends AbstractActor {
             .match(JoinGroupMsg.class, this::onJoinGroupMsg)
             .match(ReadRequestMsg.class, this::onReadRequestMsg)
             .match(WriteRequestMsg.class, this::onWriteRequestMsg)
-        .build();
+            .match(UpdateMsg.class, this::onUpdateMsg)
+            .match(AckMsg.class, this::onAckMsg)
+            .match(WriteOkMsg.class, this::onWriteOkMsg)
+            .build();
     }
 
     final AbstractActor.Receive crashed(){
