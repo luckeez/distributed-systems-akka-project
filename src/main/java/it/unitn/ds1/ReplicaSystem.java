@@ -10,8 +10,6 @@ import java.util.ArrayList;
 import java.util.List;
 
 import it.unitn.ds1.Replica.JoinGroupMsg;
-import it.unitn.ds1.Client.ReadRequestMsg;
-import it.unitn.ds1.Client.WriteRequestMsg;
 
 public class ReplicaSystem {
     private static final LoggingAdapter log = Logging.getLogger(ActorSystem.create("replicasystem"), ReplicaSystem.class);
@@ -40,16 +38,18 @@ public class ReplicaSystem {
 
         // Create a client
         ActorRef client = system.actorOf(Client.props(1), "client1");
-        log.info("Created client: client1");
+        log.info("Created client: client0");
+        // Send JoinGroupMsg to client
+        client.tell(new Client.JoinGroupMsg(group), ActorRef.noSender());
+        log.info("Sent JoinGroupMsg to client1");
 
-        // Send read and write requests
-        // group.get(1).tell(new ReadRequestMsg(client), ActorRef.noSender());
-        // log.info("Sent ReadRequestMsg from client1");
-        // TODO: fix ReadRequestMsg hadling in Client
+        // Send read request
+        client.tell(new Client.ReadRequestMsg(client), ActorRef.noSender());
+        log.info("Sent ReadRequestMsg from client1");
 
-
-        group.get(1).tell(new WriteRequestMsg(client, 42), ActorRef.noSender());
-        log.info("Sent WriteRequestMsg from client1 with value 42");
+       // Send write request
+        client.tell(new Client.WriteRequestMsg(client, 42), ActorRef.noSender());
+        log.info("Sent WriteRequestMsg from client1");
 
         try {
             log.info(">>> Press ENTER to exit <<<");

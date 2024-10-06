@@ -11,8 +11,7 @@ import akka.actor.ActorRef;
 
 import akka.event.Logging;
 import akka.event.LoggingAdapter;
-import it.unitn.ds1.Replica.JoinGroupMsg;
-import it.unitn.ds1.Replica.ReadResponseMsg;
+
 
 public class Client extends AbstractActor {
     private final LoggingAdapter log = Logging.getLogger(getContext().getSystem(), this);
@@ -50,18 +49,32 @@ public class Client extends AbstractActor {
         }
     }
 
+    public static class JoinGroupMsg implements Serializable {
+        public final List<ActorRef> group;   // an array of group members
+        public JoinGroupMsg(List<ActorRef> group){
+            this.group = group;
+        }
+    }
+
+    public static class ReadResponseMsg implements Serializable{
+        public final int v;
+        public ReadResponseMsg(int v){
+            this.v = v;
+        }
+    }
+
     /* ---------------- Client logic ----------------- */
 
-    private void sendReadRequest(){
+    private void onReadRequestMsg(ReadRequestMsg msg){
         int to = rnd.nextInt(this.replicas.size());
-        replicas.get(to).tell(new ReadRequestMsg(getSelf()), getSelf());
+        replicas.get(to).tell(new Replica.ReadRequestMsg(getSelf()), getSelf());
         log.info("Client {} sent read request to replica {}", this.id, to);
     }
 
-    private void sendWriteRequest(int proposedV){
+    private void onWriteRequestMsg(WriteRequestMsg msg){
         int to = rnd.nextInt(this.replicas.size());
-        replicas.get(to).tell(new WriteRequestMsg(getSelf(), proposedV), getSelf());
-        log.info("Client {} sent write request to replica {} with value {}", this.id, to, proposedV);
+        replicas.get(to).tell(new Replica.WriteRequestMsg(getSelf(), msg.proposedV), getSelf());
+        log.info("Client {} sent write request to replica {} with value {}", this.id, to, msg.proposedV);
     }
 
     private void onJoinGroupMsg(JoinGroupMsg msg){
@@ -86,6 +99,8 @@ public class Client extends AbstractActor {
         return receiveBuilder()
             .match(JoinGroupMsg.class, this::onJoinGroupMsg)
             .match(ReadResponseMsg.class, this::onReadResponseMsg)
+            .match(ReadRequestMsg.class, this::onReadRequestMsg)
+            .match(WriteRequestMsg.class, this::onWriteRequestMsg)
             .build();
     }
 }

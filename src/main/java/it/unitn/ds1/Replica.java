@@ -9,10 +9,7 @@ import akka.event.Logging;
 import akka.event.LoggingAdapter;
 
 import akka.actor.AbstractActor;
-import akka.actor.Actor;
 import akka.actor.Props;
-import it.unitn.ds1.Client.ReadRequestMsg;
-import it.unitn.ds1.Client.WriteRequestMsg;
 import akka.actor.ActorRef;
 
 
@@ -63,13 +60,6 @@ public class Replica extends AbstractActor {
         }
     }
 
-    public static class ReadResponseMsg implements Serializable{
-        public final int v;
-        public ReadResponseMsg(int v){
-            this.v = v;
-        }
-    }
-
     public static class UpdateMsg implements Serializable {
         public final int epoch;
         public final int seqNum;
@@ -92,7 +82,7 @@ public class Replica extends AbstractActor {
         }
     }
 
-    public class WriteOkMsg implements Serializable {
+    public static class WriteOkMsg implements Serializable {
         public final int epoch;
         public final int seqNum;
 
@@ -102,11 +92,21 @@ public class Replica extends AbstractActor {
         }
     }
 
-    public class ReadRequestMsg implements Serializable {
+    public static class ReadRequestMsg implements Serializable {
         public final ActorRef sender;
 
         public ReadRequestMsg(ActorRef sender) {
             this.sender = sender;
+        }
+    }
+
+    public static class WriteRequestMsg implements Serializable {
+        public final ActorRef sender;
+        public final int proposedV;
+
+        public WriteRequestMsg(ActorRef sender, int proposedV) {
+            this.sender = sender;
+            this.proposedV = proposedV;
         }
     }
 
@@ -132,7 +132,7 @@ public class Replica extends AbstractActor {
 
     private void onReadRequestMsg(ReadRequestMsg msg){
         ActorRef to = msg.sender;
-        to.tell(new ReadResponseMsg(this.v), getSelf());
+        to.tell(new Client.ReadResponseMsg(this.v), getSelf());
         log.info("Replica {} sent value {} to client", this.id, this.v);
     }
 
@@ -167,6 +167,7 @@ public class Replica extends AbstractActor {
         if (this.isCoordinator && ack.epoch == this.epoch && ack.seqNum == this.seqNum) {
             this.ackCount += 1;
             if (this.ackCount >= this.quorumSize) {
+                this.ackCount = 0;
                 for (ActorRef peer: this.peers){
                     peer.tell(new WriteOkMsg(this.epoch, this.seqNum), getSelf());
                 }
