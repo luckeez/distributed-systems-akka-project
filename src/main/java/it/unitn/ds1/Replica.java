@@ -2,10 +2,7 @@ package it.unitn.ds1;
 
 import java.io.Serializable;
 import java.time.Duration;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Random;
-import java.util.Collections;
+import java.util.*;
 import java.util.concurrent.TimeUnit;
 
 import akka.actor.Cancellable;
@@ -15,9 +12,6 @@ import akka.event.LoggingAdapter;
 import akka.actor.AbstractActor;
 import akka.actor.Props;
 import akka.actor.ActorRef;
-
-
-
 
 public class Replica extends AbstractActor {
     private final LoggingAdapter log = Logging.getLogger(getContext().getSystem(), this);
@@ -34,6 +28,10 @@ public class Replica extends AbstractActor {
     private int ackCount = 0;
     private UpdateMsg pendingUpdate;
     private Cancellable writeTimeout;
+    private Cancellable heartbeatTimeout;
+    private final int heartbeatInterval = 1; // seconds
+    private final int heartbeatTimeoutDuration = 2; // seconds
+    private HashMap<ActorRef, Cancellable> replicaTimeouts = new HashMap<>();
 
     // CONSTRUCTOR
     public Replica(int id, boolean isCoordinator, ActorRef coordinator){
@@ -47,21 +45,25 @@ public class Replica extends AbstractActor {
             this.coordinator = getSelf();
             getContext().system().scheduler().scheduleWithFixedDelay(
                     Duration.ZERO,
-                    Duration.ofSeconds(1),
-                    getSelf(),
-                    new HeartbeatMsg(this.epoch, this.seqNum),
-                    getContext().system().dispatcher(),
-                    getSelf()
+                    Duration.ofSeconds(heartbeatInterval),
+                    this::sendHeartbeat,
+                    getContext().system().dispatcher()
             );
         } else {
             this.coordinator = coordinator;
         }
+        // Schedule periodic crash decision
+        getContext().system().scheduler().scheduleWithFixedDelay(
+                Duration.ZERO,
+                Duration.ofSeconds(2),
+                this::decideCrash,
+                getContext().system().dispatcher()
+        );
     }
 
     static public Props props(int id, boolean isCoordinator, ActorRef coordinator){
         return Props.create(Replica.class, () -> new Replica(id, isCoordinator, coordinator));
     }
-
 
     /*-- Message classes ------------------------------------------------------ */
 
@@ -141,10 +143,25 @@ public class Replica extends AbstractActor {
         }
     }
 
+    public static class HeartbeatAckMsg implements Serializable {
+        public final int replicaId;
+
+        public HeartbeatAckMsg(int replicaId) {
+            this.replicaId = replicaId;
+        }
+    }
+
     public static class TimeoutMsg implements Serializable {
         public TimeoutMsg() {}
     }
 
+    public static class ReplicaTimeoutMsg implements Serializable {
+        public final ActorRef replica;
+
+        public ReplicaTimeoutMsg(ActorRef replica) {
+            this.replica = replica;
+        }
+    }
 
     /*------------- Actor logic -------------------------------------------- */
 
@@ -171,7 +188,7 @@ public class Replica extends AbstractActor {
             this.ackCount = 0;
 
             this.writeTimeout = getContext().system().scheduler().scheduleOnce(
-                    Duration.ofSeconds(5),
+                    Duration.ofSeconds(heartbeatTimeoutDuration),
                     getSelf(),
                     new TimeoutMsg(),
                     getContext().system().dispatcher(),
@@ -234,12 +251,65 @@ public class Replica extends AbstractActor {
         log.info("Replica {} updated coordinator to {}", this.id, msg.newCoordinator.path().name());
     }
 
+    //------------------------- Crash detection system -------------------------\\
+
+
     private void onHeartbeatMsg(HeartbeatMsg msg) {
         log.info("Replica {} received heartbeat message from coordinator", this.id);
+        resetHeartbeatTimeout();
+        // Send acknowledgment back to the coordinator
+        getSender().tell(new HeartbeatAckMsg(this.id), getSelf());
+    }
+
+    private void onHeartbeatAckMsg(HeartbeatAckMsg msg) {
+        log.info("Coordinator {} received heartbeat acknowledgment from replica {}", this.id, msg.replicaId);
+        resetReplicaTimeout(getSender());
+    }
+
+    private void sendHeartbeat(){
+        for (ActorRef peer: this.peers){
+            peer.tell(new HeartbeatMsg(this.epoch, this.seqNum), getSelf());
+        }
+    }
+
+    private void resetHeartbeatTimeout(){
+        if (this.heartbeatTimeout != null && !this.heartbeatTimeout.isCancelled()){
+            this.heartbeatTimeout.cancel();
+        }
+        this.heartbeatTimeout = getContext().system().scheduler().scheduleOnce(
+                Duration.ofSeconds(heartbeatTimeoutDuration),
+                getSelf(),
+                new TimeoutMsg(),
+                getContext().system().dispatcher(),
+                getSelf()
+        );
     }
 
     private void onTimeoutMsg(TimeoutMsg msg) {
        log.info("Replica {} detected a timeout, assuming coordinator crashed", this.id);
+       // TODO: handle coordinator crash
+    }
+
+    private void resetReplicaTimeout(ActorRef replica) {
+        if (replicaTimeouts.containsKey(replica)) {
+            replicaTimeouts.get(replica).cancel();
+        }
+
+        // Schedule a new timeout
+        Cancellable timeout = getContext().system().scheduler().scheduleOnce(
+            Duration.ofSeconds(heartbeatTimeoutDuration),
+            getSelf(),
+            new ReplicaTimeoutMsg(replica),
+            getContext().system().dispatcher(),
+            getSelf()
+        );
+        // Store the timeout for the replica
+        replicaTimeouts.put(replica, timeout);
+    }
+
+    private void onReplicaTimeoutMsg(ReplicaTimeoutMsg msg) {
+        log.info("Coordinator {} detected a timeout for replica {}, assuming it crashed", this.id, msg.replica.path().name());
+        // TODO: handle replica crash
     }
 
     private void decideCrash(){
@@ -248,8 +318,8 @@ public class Replica extends AbstractActor {
         }
     }
 
-
     private void crash(){
+        log.info("Replica {} crashed", this.id);
         getContext().become(crashed());
     }
 
@@ -268,7 +338,9 @@ public class Replica extends AbstractActor {
                 .match(WriteOkMsg.class, this::onWriteOkMsg)
                 .match(CoordinatorUpdateMsg.class, this::onCoordinatorUpdateMsg)
                 .match(HeartbeatMsg.class, this::onHeartbeatMsg)
+                .match(HeartbeatAckMsg.class, this::onHeartbeatAckMsg)
                 .match(TimeoutMsg.class, this::onTimeoutMsg)
+                .match(ReplicaTimeoutMsg.class, this::onReplicaTimeoutMsg)
                 .build();
     }
 
@@ -282,6 +354,9 @@ public class Replica extends AbstractActor {
     public void postStop() {
         if (writeTimeout != null && !writeTimeout.isCancelled()) {
             writeTimeout.cancel();
+        }
+        if (heartbeatTimeout != null && !heartbeatTimeout.isCancelled()) {
+            heartbeatTimeout.cancel();
         }
     }
 }
