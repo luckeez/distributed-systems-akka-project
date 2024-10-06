@@ -1,10 +1,14 @@
 package it.unitn.ds1;
 
 import java.io.Serializable;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
 import java.util.Collections;
+import java.util.concurrent.TimeUnit;
+
+import akka.actor.Cancellable;
 import akka.event.Logging;
 import akka.event.LoggingAdapter;
 
@@ -29,6 +33,7 @@ public class Replica extends AbstractActor {
     private int quorumSize;
     private int ackCount = 0;
     private UpdateMsg pendingUpdate;
+    private Cancellable writeTimeout;
 
     // CONSTRUCTOR
     public Replica(int id, boolean isCoordinator, ActorRef coordinator){
@@ -40,6 +45,14 @@ public class Replica extends AbstractActor {
         this.seqNum = 0;
         if (isCoordinator && coordinator == null){
             this.coordinator = getSelf();
+            getContext().system().scheduler().scheduleWithFixedDelay(
+                    Duration.ZERO,
+                    Duration.ofSeconds(1),
+                    getSelf(),
+                    new HeartbeatMsg(this.epoch, this.seqNum),
+                    getContext().system().dispatcher(),
+                    getSelf()
+            );
         } else {
             this.coordinator = coordinator;
         }
@@ -118,6 +131,20 @@ public class Replica extends AbstractActor {
         }
     }
 
+    public static class HeartbeatMsg implements Serializable {
+        public final int epoch;
+        public final int seqNum;
+
+        public HeartbeatMsg(int epoch, int seqNum) {
+            this.epoch = epoch;
+            this.seqNum = seqNum;
+        }
+    }
+
+    public static class TimeoutMsg implements Serializable {
+        public TimeoutMsg() {}
+    }
+
 
     /*------------- Actor logic -------------------------------------------- */
 
@@ -143,6 +170,14 @@ public class Replica extends AbstractActor {
             this.pendingUpdate = new UpdateMsg(this.epoch, this.seqNum, msg.proposedV);
             this.ackCount = 0;
 
+            this.writeTimeout = getContext().system().scheduler().scheduleOnce(
+                    Duration.ofSeconds(5),
+                    getSelf(),
+                    new TimeoutMsg(),
+                    getContext().system().dispatcher(),
+                    getSelf()
+            );
+
             // Broadcast UPDATE message to all replicas
             for (ActorRef peer: this.peers){
                 peer.tell(this.pendingUpdate, getSelf());
@@ -159,6 +194,7 @@ public class Replica extends AbstractActor {
         this.epoch = Math.max(this.epoch, msg.epoch);
         this.seqNum = Math.max(this.seqNum, msg.seqNum);
         this.pendingUpdate = msg;
+
         getSender().tell(new AckMsg(msg.epoch, msg.seqNum), getSelf());
         log.info("Replica {} received update message with value {}", this.id, msg.newV);
     }
@@ -172,6 +208,9 @@ public class Replica extends AbstractActor {
                     peer.tell(new WriteOkMsg(this.epoch, this.seqNum), getSelf());
                 }
                 this.v = this.pendingUpdate.newV;
+                if (this.writeTimeout != null) {
+                    this.writeTimeout.cancel();
+                }
                 log.info("Coordinator {} received enough acks, broadcasted write ok message", this.id);
             }
         }
@@ -180,6 +219,9 @@ public class Replica extends AbstractActor {
     private void onWriteOkMsg(WriteOkMsg msg) {
         if (msg.epoch == this.epoch && msg.seqNum == this.seqNum) {
             this.v = this.pendingUpdate.newV;
+            if (this.writeTimeout != null) {
+                this.writeTimeout.cancel();
+            }
             log.info("Replica {} received write ok message, updated value to {}", this.id, this.v);
         } else {
             log.error("Replica {} received write ok message with wrong epoch or seqNum", this.id);
@@ -190,6 +232,14 @@ public class Replica extends AbstractActor {
     private void onCoordinatorUpdateMsg(CoordinatorUpdateMsg msg) {
         this.coordinator = msg.newCoordinator;
         log.info("Replica {} updated coordinator to {}", this.id, msg.newCoordinator.path().name());
+    }
+
+    private void onHeartbeatMsg(HeartbeatMsg msg) {
+        log.info("Replica {} received heartbeat message from coordinator", this.id);
+    }
+
+    private void onTimeoutMsg(TimeoutMsg msg) {
+       log.info("Replica {} detected a timeout, assuming coordinator crashed", this.id);
     }
 
     private void decideCrash(){
@@ -217,6 +267,8 @@ public class Replica extends AbstractActor {
                 .match(AckMsg.class, this::onAckMsg)
                 .match(WriteOkMsg.class, this::onWriteOkMsg)
                 .match(CoordinatorUpdateMsg.class, this::onCoordinatorUpdateMsg)
+                .match(HeartbeatMsg.class, this::onHeartbeatMsg)
+                .match(TimeoutMsg.class, this::onTimeoutMsg)
                 .build();
     }
 
@@ -224,5 +276,12 @@ public class Replica extends AbstractActor {
         return receiveBuilder()
                 .matchAny(msg -> {})
                 .build();
+    }
+
+    @Override
+    public void postStop() {
+        if (writeTimeout != null && !writeTimeout.isCancelled()) {
+            writeTimeout.cancel();
+        }
     }
 }

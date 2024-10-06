@@ -11,6 +11,8 @@ import java.util.List;
 
 import it.unitn.ds1.Replica.JoinGroupMsg;
 
+import static java.lang.System.exit;
+
 public class ReplicaSystem {
     private static final LoggingAdapter log = Logging.getLogger(ActorSystem.create("replicasystem"), ReplicaSystem.class);
     final static int N = 10;
@@ -59,6 +61,7 @@ public class ReplicaSystem {
         } finally {
             system.terminate();
             log.info("Actor system terminated");
+            exit(0);
         }
     }
 }
