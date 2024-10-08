@@ -17,6 +17,7 @@ public class Replica extends AbstractActor {
     private final LoggingAdapter log = Logging.getLogger(getContext().getSystem(), this);
     private final int id;
     private int v;
+    private boolean isActive;
     private List<ActorRef> peers = new ArrayList<>();
     private boolean isCoordinator;
     private final int crashP = 5;
@@ -24,7 +25,7 @@ public class Replica extends AbstractActor {
     private ActorRef coordinator;
     private int epoch;
     private int seqNum;
-    private int quorumSize;
+    private final int quorumSize;
     private int ackCount = 0;
     private UpdateMsg pendingUpdate;
     private Cancellable writeTimeout;
@@ -32,6 +33,7 @@ public class Replica extends AbstractActor {
     private final int heartbeatInterval = 1; // seconds
     private final int heartbeatTimeoutDuration = 2; // seconds
     private HashMap<ActorRef, Cancellable> replicaTimeouts = new HashMap<>();
+    private List<UpdateMsg> updates = new ArrayList<>();
 
     // CONSTRUCTOR
     public Replica(int id, boolean isCoordinator, ActorRef coordinator){
@@ -41,6 +43,7 @@ public class Replica extends AbstractActor {
         this.quorumSize = (10 / 2) + 1; // Majority quorum
         this.epoch = 0;
         this.seqNum = 0;
+        this.isActive = true;
         if (isCoordinator && coordinator == null){
             this.coordinator = getSelf();
             getContext().system().scheduler().scheduleWithFixedDelay(
@@ -125,14 +128,6 @@ public class Replica extends AbstractActor {
         }
     }
 
-    public static class CoordinatorUpdateMsg implements Serializable {
-        public final ActorRef newCoordinator;
-
-        public CoordinatorUpdateMsg(ActorRef newCoordinator) {
-            this.newCoordinator = newCoordinator;
-        }
-    }
-
     public static class HeartbeatMsg implements Serializable {
         public final int epoch;
         public final int seqNum;
@@ -160,6 +155,49 @@ public class Replica extends AbstractActor {
 
         public ReplicaTimeoutMsg(ActorRef replica) {
             this.replica = replica;
+        }
+    }
+
+    public static class LeaderElectionMsg implements Serializable {
+        public final int epoch;
+        public final int seqNum;
+        public final ActorRef sender;
+        public final int candidateId;
+        public final ArrayList<ActorRef> notifiedReplicas;
+
+
+        public LeaderElectionMsg(int epoch, int seqNum, ActorRef sender, int candidateId, ArrayList<ActorRef> notifiedReplicas) {
+            this.epoch = epoch;
+            this.seqNum = seqNum;
+            this.sender = sender;
+            this.candidateId = candidateId;
+            this.notifiedReplicas = notifiedReplicas;
+
+        }
+    }
+
+    public static class CoordinatorMsg implements Serializable {
+        public final ActorRef sender;
+        public final int candidateId;
+
+        public CoordinatorMsg (int candidateId, ActorRef sender) {
+            this.candidateId = candidateId;
+            this.sender = sender;
+        }
+
+    }
+
+    public static class SynchronizationMsg implements Serializable {
+        public final int epoch;
+        public final int seqNum;
+        public final ActorRef newCoordinator;
+        public final List<UpdateMsg> updates;
+
+        public SynchronizationMsg(int epoch, int seqNum, ActorRef newCoordinator, List<UpdateMsg> updates) {
+            this.epoch = epoch;
+            this.seqNum = seqNum;
+            this.newCoordinator = newCoordinator;
+            this.updates = updates;
         }
     }
 
@@ -211,6 +249,7 @@ public class Replica extends AbstractActor {
         this.epoch = Math.max(this.epoch, msg.epoch);
         this.seqNum = Math.max(this.seqNum, msg.seqNum);
         this.pendingUpdate = msg;
+        this.updates.add(msg);
 
         getSender().tell(new AckMsg(msg.epoch, msg.seqNum), getSelf());
         log.info("Replica {} received update message with value {}", this.id, msg.newV);
@@ -245,12 +284,6 @@ public class Replica extends AbstractActor {
             log.info("Expected epoch: {}, seqNum: {}, got ({},{})", this.epoch, this.seqNum, msg.epoch, msg.seqNum);
         }
     }
-
-    private void onCoordinatorUpdateMsg(CoordinatorUpdateMsg msg) {
-        this.coordinator = msg.newCoordinator;
-        log.info("Replica {} updated coordinator to {}", this.id, msg.newCoordinator.path().name());
-    }
-
     //------------------------- Crash detection system -------------------------\\
 
 
@@ -267,8 +300,10 @@ public class Replica extends AbstractActor {
     }
 
     private void sendHeartbeat(){
-        for (ActorRef peer: this.peers){
-            peer.tell(new HeartbeatMsg(this.epoch, this.seqNum), getSelf());
+        if (this.isActive) {
+            for (ActorRef peer : this.peers) {
+                peer.tell(new HeartbeatMsg(this.epoch, this.seqNum), getSelf());
+            }
         }
     }
 
@@ -286,8 +321,18 @@ public class Replica extends AbstractActor {
     }
 
     private void onTimeoutMsg(TimeoutMsg msg) {
-       log.info("Replica {} detected a timeout, assuming coordinator crashed", this.id);
-       // TODO: handle coordinator crash
+        log.info("Replica {} detected a timeout, assuming coordinator crashed", this.id);
+        peers.remove(this.coordinator);
+        ActorRef nextReplica = getNextReplica();
+        if (nextReplica != null) {
+            ArrayList<ActorRef> notifiedReplicas = new ArrayList<>();
+            notifiedReplicas.add(getSelf());
+            nextReplica.tell(new LeaderElectionMsg(this.epoch, this.seqNum, getSelf(), this.id, notifiedReplicas), getSelf());
+        } else {
+            // If this is the only replica left, it becomes the coordinator
+            selfElection();
+        }
+
     }
 
     private void resetReplicaTimeout(ActorRef replica) {
@@ -308,19 +353,112 @@ public class Replica extends AbstractActor {
     }
 
     private void onReplicaTimeoutMsg(ReplicaTimeoutMsg msg) {
-        log.info("Coordinator {} detected a timeout for replica {}, assuming it crashed", this.id, msg.replica.path().name());
-        // TODO: handle replica crash
+        if (getSelf() == this.coordinator) {
+            log.info("Coordinator {} detected a timeout for replica {}, assuming it crashed", this.id, msg.replica.path().name());
+            peers.remove(msg.replica);
+            for (ActorRef peer: this.peers){
+                peer.tell(new ReplicaTimeoutMsg(msg.replica), getSelf());
+            }
+        } else {
+            peers.remove(msg.replica);
+        }
     }
 
     private void decideCrash(){
-        if (this.rnd.nextInt(100) <= this.crashP){
+        /*
+        if (this.isCoordinator && this.rnd.nextInt(100) <= this.crashP) {
+            crash();
+        }
+        */
+        if (peers.size() > this.quorumSize && this.rnd.nextInt(100) <= this.crashP){
             crash();
         }
     }
 
     private void crash(){
-        log.info("Replica {} crashed", this.id);
+        if (this.isCoordinator && heartbeatTimeout != null && !heartbeatTimeout.isCancelled()) {
+            heartbeatTimeout.cancel();
+        }
         getContext().become(crashed());
+        this.isActive = false;
+    }
+
+    //------------------------- Leader election system -------------------------\\
+
+    private void onLeaderElectionMsg(LeaderElectionMsg msg) {
+        log.info("Replica {} received election message from {} with candidateId {}", this.id, msg.sender.path().name(), msg.candidateId);
+
+        // Determine if the current replica should be the new candidate
+        boolean isBetterCandidate = (msg.epoch < this.epoch) ||
+                (msg.epoch == this.epoch && msg.seqNum < this.seqNum) ||
+                (msg.epoch == this.epoch && msg.seqNum == this.seqNum && msg.candidateId < this.id);
+
+        int newCandidateId = isBetterCandidate ? this.id : msg.candidateId;
+        int newEpoch = isBetterCandidate ? this.epoch : msg.epoch;
+        int newSeqNum = isBetterCandidate ? this.seqNum : msg.seqNum;
+
+        // Forward the election message to the next replica in the ring
+        ActorRef nextReplica = getNextReplica();
+        if (nextReplica == null){
+            // If this is the only replica left, it becomes the coordinator (it is impossible but avoid warnings)
+            selfElection();
+        } else if (!msg.notifiedReplicas.contains(getSelf())) {
+            msg.notifiedReplicas.add(getSelf());
+            nextReplica.tell(new LeaderElectionMsg(newEpoch, newSeqNum, getSelf(), newCandidateId, new ArrayList<>(msg.notifiedReplicas)), getSelf());
+        } else {
+           nextReplica.tell(new CoordinatorMsg(newCandidateId, getSelf()), getSelf());
+        }
+    }
+
+    private void onCoordinatorMsg(CoordinatorMsg msg) {
+        ActorRef nextReplica = getNextReplica();
+        if (msg.candidateId == this.id || nextReplica == null) {
+            selfElection();
+        } else {
+            nextReplica.tell(new CoordinatorMsg(msg.candidateId, getSelf()), getSelf());
+        }
+    }
+
+    private void onSynchronizationMsg(SynchronizationMsg msg) {
+        log.info("Replica {} received synchronization message from new coordinator {}", this.id, msg.newCoordinator);
+        this.coordinator = msg.newCoordinator;
+        this.epoch = msg.epoch;
+        this.seqNum = msg.seqNum;
+        this.isCoordinator = (msg.newCoordinator == getSelf());
+        resetHeartbeatTimeout();
+
+        // Synchronize updates
+        for (UpdateMsg update : msg.updates) {
+            if (update.seqNum > this.seqNum) {
+                this.seqNum = update.seqNum;
+                this.v = update.newV;
+                log.info("Replica {} synchronized update with seqNum {} and value {}", this.id, update.seqNum, update.newV);
+            }
+        }
+    }
+
+    private ActorRef getNextReplica() {
+        if (this.peers.isEmpty()) return null;
+        int nextIndex = (this.peers.indexOf(getSelf()) + 1) % this.peers.size();
+        return this.peers.get(nextIndex);
+    }
+
+    private void selfElection() {
+        log.info("Replica {} becomes the new coordinator", this.id);
+        this.isCoordinator = true;
+        this.coordinator = getSelf();
+        this.epoch = epoch + 1;
+
+        // Broadcast SynchronizationMsg to all replicas with the list of updates
+        for (ActorRef peer : this.peers) {
+            peer.tell(new SynchronizationMsg(this.epoch, this.seqNum, getSelf(), new ArrayList<>(this.updates)), getSelf());
+        }
+        getContext().system().scheduler().scheduleWithFixedDelay(
+                Duration.ZERO,
+                Duration.ofSeconds(heartbeatInterval),
+                this::sendHeartbeat,
+                getContext().system().dispatcher()
+        );
     }
 
     /* -------------------------------------------------------------- */
@@ -336,11 +474,13 @@ public class Replica extends AbstractActor {
                 .match(UpdateMsg.class, this::onUpdateMsg)
                 .match(AckMsg.class, this::onAckMsg)
                 .match(WriteOkMsg.class, this::onWriteOkMsg)
-                .match(CoordinatorUpdateMsg.class, this::onCoordinatorUpdateMsg)
                 .match(HeartbeatMsg.class, this::onHeartbeatMsg)
                 .match(HeartbeatAckMsg.class, this::onHeartbeatAckMsg)
                 .match(TimeoutMsg.class, this::onTimeoutMsg)
                 .match(ReplicaTimeoutMsg.class, this::onReplicaTimeoutMsg)
+                .match(LeaderElectionMsg.class, this::onLeaderElectionMsg)
+                .match(SynchronizationMsg.class, this::onSynchronizationMsg)
+                .match(CoordinatorMsg.class, this::onCoordinatorMsg)
                 .build();
     }
 
