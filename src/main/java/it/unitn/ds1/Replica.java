@@ -241,9 +241,12 @@ public class Replica extends AbstractActor {
             );
 
             // Broadcast UPDATE message to all replicas
-            for (ActorRef peer: this.peers){
-                peer.tell(this.pendingUpdate, getSelf());
-            }
+            // for (ActorRef peer: this.peers){
+            //     peer.tell(this.pendingUpdate, getSelf());
+            // }
+
+            multicast(this.pendingUpdate, this.peers);
+
             log.info("Coordinator {} broadcasted update message with value {}", this.id, msg.proposedV);
         } else {
             // forward the message to coordinator
@@ -267,9 +270,14 @@ public class Replica extends AbstractActor {
             this.ackCount += 1;
             if (this.ackCount >= this.quorumSize) {
                 this.ackCount = 0;
-                for (ActorRef peer: this.peers){
-                    peer.tell(new WriteOkMsg(this.epoch, this.seqNum), getSelf());
-                }
+
+                // for (ActorRef peer: this.peers){
+                //     peer.tell(new WriteOkMsg(this.epoch, this.seqNum), getSelf());
+                // }
+
+                WriteOkMsg m = new WriteOkMsg(this.epoch, this.seqNum);
+                multicast(m, this.peers);
+            
                 this.v = this.pendingUpdate.newV;
                 if (this.writeTimeout != null) {
                     this.writeTimeout.cancel();
@@ -308,9 +316,11 @@ public class Replica extends AbstractActor {
 
     private void sendHeartbeat(){
         // if (this.isActive) {
-        for (ActorRef peer : this.peers) {
-            peer.tell(new HeartbeatMsg(this.epoch, this.seqNum), getSelf());
-        }
+        // for (ActorRef peer : this.peers) {
+        //     peer.tell(new HeartbeatMsg(this.epoch, this.seqNum), getSelf());
+        // }
+        HeartbeatMsg m = new HeartbeatMsg(this.epoch, this.seqNum);
+        multicast(m, this.peers);
         // }
     }
 
@@ -364,9 +374,14 @@ public class Replica extends AbstractActor {
         if (getSelf() == this.coordinator) {
             log.info("Coordinator {} detected a timeout for replica {}, assuming it CRASHED", this.id, msg.replica.path().name());
             peers.remove(msg.replica);
-            for (ActorRef peer: this.peers){
-                peer.tell(new ReplicaTimeoutMsg(msg.replica), getSelf());
-            }
+
+            // for (ActorRef peer: this.peers){
+            //     peer.tell(new ReplicaTimeoutMsg(msg.replica), getSelf());
+            // }
+
+            ReplicaTimeoutMsg m = new ReplicaTimeoutMsg(msg.replica);
+            multicast(m, this.peers);
+
         } else {
             peers.remove(msg.replica);
         }
@@ -390,6 +405,24 @@ public class Replica extends AbstractActor {
         }
         getContext().become(crashed());
         // this.isActive = false;
+    }
+
+    private void introduceNetworkDelay(){
+        try { Thread.sleep(rnd.nextInt(10)); }
+        catch (InterruptedException e) { e.printStackTrace(); }
+    }
+
+    private void multicast(Serializable m, List<ActorRef> multicastGroup){
+        for (ActorRef peer : multicastGroup){
+
+            // if (!peer.equals(getSelf())){      // using this we can avoid having the ringtopology list (?)
+
+            // simulate network delay
+            introduceNetworkDelay();  // TODO add in all the single "tell"?
+
+            peer.tell(m, getSelf()); 
+            // }
+        }
     }
 
     //------------------------- Leader election system -------------------------\\
@@ -463,9 +496,13 @@ public class Replica extends AbstractActor {
             this.epoch = epoch + 1;
     
             // Broadcast SynchronizationMsg to all replicas with the list of updates
-            for (ActorRef peer : this.peers) {
-                peer.tell(new SynchronizationMsg(this.epoch, this.seqNum, getSelf(), new ArrayList<>(this.updates)), getSelf());
-            }
+            // for (ActorRef peer : this.peers) {
+            //     peer.tell(new SynchronizationMsg(this.epoch, this.seqNum, getSelf(), new ArrayList<>(this.updates)), getSelf());
+            // }
+
+            SynchronizationMsg m = new SynchronizationMsg(this.epoch, this.seqNum, getSelf(), new ArrayList<>(this.updates));
+            multicast(m, this.peers);
+
             this.heartbeatTimeout = getContext().system().scheduler().scheduleWithFixedDelay(
                     Duration.ZERO,
                     Duration.ofSeconds(heartbeatInterval),
