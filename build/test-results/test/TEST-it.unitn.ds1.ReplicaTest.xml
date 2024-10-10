@@ -1,9 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<testsuite name="it.unitn.ds1.ReplicaTest" tests="1" skipped="0" failures="0" errors="0" timestamp="2024-09-29T13:22:38" hostname="laptop" time="0.009">
-  <properties/>
-  <testcase name="testJoinGroup" classname="it.unitn.ds1.ReplicaTest" time="0.009"/>
-  <system-out><![CDATA[15:22:38.781 [replicasystem-akka.actor.default-dispatcher-5] INFO akka.event.slf4j.Slf4jLogger - Slf4jLogger started
-15:22:38.877 [replicasystem-akka.actor.default-dispatcher-11] INFO akka.actor.CoordinatedShutdown - Running CoordinatedShutdown with reason [ActorSystemTerminateReason]
-]]></system-out>
-  <system-err><![CDATA[]]></system-err>
-</testsuite>
