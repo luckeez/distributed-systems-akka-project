@@ -1,7 +1,4 @@
 <configuration>
-
-    <property name="useConsoleLog" value="${useConsoleLog:-false}" />
-
     <appender name="FILE" class="ch.qos.logback.core.FileAppender">
         <file>logs/protocol.ans</file>
         <append>false</append>
@@ -20,10 +17,7 @@
 
     <root level="info">
         <appender-ref ref="FILE" />
-        <if condition='''${useConsoleLog} == "true"'''>
-            <then>
-                <appender-ref ref="CONSOLE" />
-            </then>
-        </if>
+        <!-- comment the following line to remove console logging -->
+        <appender-ref ref="CONSOLE" /> 
     </root>
 </configuration>

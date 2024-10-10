@@ -219,7 +219,8 @@ public class Replica extends AbstractActor {
 
     private void onReadRequestMsg(ReadRequestMsg msg){
         ActorRef to = msg.sender;
-        to.tell(new Client.ReadResponseMsg(this.v), getSelf());
+        //to.tell(new Client.ReadResponseMsg(this.v), getSelf());
+        tellToReplica(to, new Client.ReadResponseMsg(this.v));
         log.info("Replica {} sent value {} to client", this.id, this.v);
     }
 
@@ -250,7 +251,8 @@ public class Replica extends AbstractActor {
             log.info("Coordinator {} broadcasted update message with value {}", this.id, msg.proposedV);
         } else {
             // forward the message to coordinator
-            this.coordinator.tell(msg, getSelf());
+            //this.coordinator.tell(msg, getSelf());
+            tellToReplica(this.coordinator, msg);
             log.info("Replica {} forwarded write request to coordinator", this.id);
         }
     }
@@ -261,7 +263,8 @@ public class Replica extends AbstractActor {
         this.pendingUpdate = msg;
         this.updates.add(msg);
 
-        getSender().tell(new AckMsg(msg.epoch, msg.seqNum), getSelf());
+        //getSender().tell(new AckMsg(msg.epoch, msg.seqNum), getSelf());
+        tellToReplica(getSender(), new AckMsg(msg.epoch, msg.seqNum));
         log.info("Replica {} received update message with value {}", this.id, msg.newV);
     }
 
@@ -306,7 +309,8 @@ public class Replica extends AbstractActor {
         // log.info("Replica {} received heartbeat message from coordinator", this.id);
         resetHeartbeatTimeout();
         // Send acknowledgment back to the coordinator
-        getSender().tell(new HeartbeatAckMsg(this.id), getSelf());
+        //getSender().tell(new HeartbeatAckMsg(this.id), getSelf());
+        tellToReplica(getSender(), new HeartbeatAckMsg(this.id));
     }
 
     private void onHeartbeatAckMsg(HeartbeatAckMsg msg) {
@@ -345,7 +349,8 @@ public class Replica extends AbstractActor {
         if (nextReplica != null) {
             ArrayList<ActorRef> notifiedReplicas = new ArrayList<>();
             notifiedReplicas.add(getSelf());
-            nextReplica.tell(new LeaderElectionMsg(this.epoch, this.seqNum, getSelf(), this.id, notifiedReplicas), getSelf());
+            //nextReplica.tell(new LeaderElectionMsg(this.epoch, this.seqNum, getSelf(), this.id, notifiedReplicas), getSelf());
+            tellToReplica(nextReplica, new LeaderElectionMsg(this.epoch, this.seqNum, getSelf(), this.id, notifiedReplicas));
         } else {
             // If this is the only replica left, it becomes the coordinator
             selfElection();
@@ -408,7 +413,7 @@ public class Replica extends AbstractActor {
     }
 
     private void introduceNetworkDelay(){
-        try { Thread.sleep(rnd.nextInt(10)); }
+        try { Thread.sleep(rnd.nextInt(100)); }
         catch (InterruptedException e) { e.printStackTrace(); }
     }
 
@@ -423,6 +428,11 @@ public class Replica extends AbstractActor {
             peer.tell(m, getSelf()); 
             // }
         }
+    }
+
+    private void tellToReplica(ActorRef recipient, Serializable m){
+        introduceNetworkDelay();
+        recipient.tell(m, getSelf());
     }
 
     //------------------------- Leader election system -------------------------\\
@@ -447,9 +457,11 @@ public class Replica extends AbstractActor {
             selfElection();
         } else if (!msg.notifiedReplicas.contains(getSelf())) {
             msg.notifiedReplicas.add(getSelf());
-            nextReplica.tell(new LeaderElectionMsg(newEpoch, newSeqNum, getSelf(), newCandidateId, new ArrayList<>(msg.notifiedReplicas)), getSelf());
+            //nextReplica.tell(new LeaderElectionMsg(newEpoch, newSeqNum, getSelf(), newCandidateId, new ArrayList<>(msg.notifiedReplicas)), getSelf());
+            tellToReplica(nextReplica, new LeaderElectionMsg(newEpoch, newSeqNum, getSelf(), newCandidateId, new ArrayList<>(msg.notifiedReplicas)));
         } else {
-           nextReplica.tell(new CoordinatorMsg(newCandidateId, getSelf()), getSelf());
+           //nextReplica.tell(new CoordinatorMsg(newCandidateId, getSelf()), getSelf());
+           tellToReplica(nextReplica, new CoordinatorMsg(newCandidateId, getSelf()));
         }
     }
 
@@ -458,7 +470,8 @@ public class Replica extends AbstractActor {
         if (msg.candidateId == this.id || nextReplica == null) {
             selfElection();
         } else {
-            nextReplica.tell(new CoordinatorMsg(msg.candidateId, getSelf()), getSelf());
+            //nextReplica.tell(new CoordinatorMsg(msg.candidateId, getSelf()), getSelf());
+            tellToReplica(nextReplica, new CoordinatorMsg(msg.candidateId, getSelf()));
         }
     }
 
