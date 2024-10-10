@@ -375,7 +375,7 @@ public class Replica extends AbstractActor {
 
     private void decideCrash(){
         
-        if (this.isCoordinator && this.rnd.nextInt(100) <= 5 && this.ringTopology.size() > this.quorumSize) {
+        if (this.isCoordinator && this.rnd.nextInt(100) <= this.crashP && this.ringTopology.size() > this.quorumSize) {
             crash();
         }
         
