@@ -1,4 +1,4 @@
 /.gradle/*
 /.idea/*
 /build/*
-/logs/protocol.log
+/logs/protocol.ans
