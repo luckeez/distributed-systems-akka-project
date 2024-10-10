@@ -13,6 +13,8 @@ import akka.actor.AbstractActor;
 import akka.actor.Props;
 import akka.actor.ActorRef;
 
+import it.unitn.ds1.Colors;
+
 public class Replica extends AbstractActor {
     private final LoggingAdapter log = Logging.getLogger(getContext().getSystem(), this);
     private final int id;
@@ -34,19 +36,20 @@ public class Replica extends AbstractActor {
     private final int heartbeatTimeoutDuration = 2; // seconds
     private HashMap<ActorRef, Cancellable> replicaTimeouts = new HashMap<>();
     private List<UpdateMsg> updates = new ArrayList<>();
+    private List<ActorRef> ringTopology;
 
     // CONSTRUCTOR
-    public Replica(int id, boolean isCoordinator, ActorRef coordinator){
+    public Replica(int id, boolean isCoordinator, ActorRef coordinator, int N){
         this.id = id;
         this.isCoordinator = isCoordinator;
         this.rnd = new Random();
-        this.quorumSize = (10 / 2) + 1; // Majority quorum
+        this.quorumSize = (N / 2) + 1; // Majority quorum
         this.epoch = 0;
         this.seqNum = 0;
         this.isActive = true;
         if (isCoordinator && coordinator == null){
             this.coordinator = getSelf();
-            getContext().system().scheduler().scheduleWithFixedDelay(
+            this.heartbeatTimeout = getContext().system().scheduler().scheduleWithFixedDelay(
                     Duration.ZERO,
                     Duration.ofSeconds(heartbeatInterval),
                     this::sendHeartbeat,
@@ -64,8 +67,12 @@ public class Replica extends AbstractActor {
         );
     }
 
-    static public Props props(int id, boolean isCoordinator, ActorRef coordinator){
-        return Props.create(Replica.class, () -> new Replica(id, isCoordinator, coordinator));
+    static public Props props(int id, boolean isCoordinator, ActorRef coordinator, int N){
+        return Props.create(Replica.class, () -> new Replica(id, isCoordinator, coordinator, N));
+    }
+
+    public int getId(){
+        return this.id;
     }
 
     /*-- Message classes ------------------------------------------------------ */
@@ -209,6 +216,7 @@ public class Replica extends AbstractActor {
                 this.peers.add(a);  // copy all replicas except for self
             }
         }
+        this.ringTopology = new ArrayList<>(msg.group);
         log.info("Replica {} joined group with {} peers", this.id, this.peers.size());
     }
 
@@ -224,7 +232,9 @@ public class Replica extends AbstractActor {
             this.seqNum += 1;
             this.pendingUpdate = new UpdateMsg(this.epoch, this.seqNum, msg.proposedV);
             this.ackCount = 0;
+            this.updates.add(pendingUpdate);
 
+            // IF crash while writing
             this.writeTimeout = getContext().system().scheduler().scheduleOnce(
                     Duration.ofSeconds(heartbeatTimeoutDuration),
                     getSelf(),
@@ -275,36 +285,36 @@ public class Replica extends AbstractActor {
     private void onWriteOkMsg(WriteOkMsg msg) {
         if (msg.epoch == this.epoch && msg.seqNum == this.seqNum) {
             this.v = this.pendingUpdate.newV;
-            if (this.writeTimeout != null) {
-                this.writeTimeout.cancel();
-            }
+            // if (this.writeTimeout != null) {
+            //     this.writeTimeout.cancel();
+            // }
             log.info("Replica {} received write ok message, updated value to {}", this.id, this.v);
         } else {
             log.error("Replica {} received write ok message with wrong epoch or seqNum", this.id);
             log.info("Expected epoch: {}, seqNum: {}, got ({},{})", this.epoch, this.seqNum, msg.epoch, msg.seqNum);
         }
     }
+
     //------------------------- Crash detection system -------------------------\\
 
-
     private void onHeartbeatMsg(HeartbeatMsg msg) {
-        log.info("Replica {} received heartbeat message from coordinator", this.id);
+        // log.info("Replica {} received heartbeat message from coordinator", this.id);
         resetHeartbeatTimeout();
         // Send acknowledgment back to the coordinator
         getSender().tell(new HeartbeatAckMsg(this.id), getSelf());
     }
 
     private void onHeartbeatAckMsg(HeartbeatAckMsg msg) {
-        log.info("Coordinator {} received heartbeat acknowledgment from replica {}", this.id, msg.replicaId);
+        // log.info("Coordinator {} received heartbeat acknowledgment from replica {}", this.id, msg.replicaId);
         resetReplicaTimeout(getSender());
     }
 
     private void sendHeartbeat(){
-        if (this.isActive) {
-            for (ActorRef peer : this.peers) {
-                peer.tell(new HeartbeatMsg(this.epoch, this.seqNum), getSelf());
-            }
+        // if (this.isActive) {
+        for (ActorRef peer : this.peers) {
+            peer.tell(new HeartbeatMsg(this.epoch, this.seqNum), getSelf());
         }
+        // }
     }
 
     private void resetHeartbeatTimeout(){
@@ -312,17 +322,18 @@ public class Replica extends AbstractActor {
             this.heartbeatTimeout.cancel();
         }
         this.heartbeatTimeout = getContext().system().scheduler().scheduleOnce(
-                Duration.ofSeconds(heartbeatTimeoutDuration),
-                getSelf(),
-                new TimeoutMsg(),
-                getContext().system().dispatcher(),
-                getSelf()
+                Duration.ofSeconds(heartbeatTimeoutDuration),  // duration
+                getSelf(),   // receiver
+                new TimeoutMsg(), // message type
+                getContext().system().dispatcher(), // process
+                getSelf() // sender
         );
     }
 
     private void onTimeoutMsg(TimeoutMsg msg) {
-        log.info("Replica {} detected a timeout, assuming coordinator crashed", this.id);
+        log.info(Colors.RED + "Replica {} detected a timeout, assuming coordinator {} CRASHED" + Colors.RESET, this.id, this.coordinator);
         peers.remove(this.coordinator);
+        this.ringTopology.remove(this.coordinator);
         ActorRef nextReplica = getNextReplica();
         if (nextReplica != null) {
             ArrayList<ActorRef> notifiedReplicas = new ArrayList<>();
@@ -354,7 +365,7 @@ public class Replica extends AbstractActor {
 
     private void onReplicaTimeoutMsg(ReplicaTimeoutMsg msg) {
         if (getSelf() == this.coordinator) {
-            log.info("Coordinator {} detected a timeout for replica {}, assuming it crashed", this.id, msg.replica.path().name());
+            log.info("Coordinator {} detected a timeout for replica {}, assuming it CRASHED", this.id, msg.replica.path().name());
             peers.remove(msg.replica);
             for (ActorRef peer: this.peers){
                 peer.tell(new ReplicaTimeoutMsg(msg.replica), getSelf());
@@ -362,17 +373,18 @@ public class Replica extends AbstractActor {
         } else {
             peers.remove(msg.replica);
         }
+        this.ringTopology.remove(msg.replica);
     }
 
     private void decideCrash(){
-        /*
-        if (this.isCoordinator && this.rnd.nextInt(100) <= this.crashP) {
+        
+        if (this.isCoordinator && this.rnd.nextInt(100) <= 5) {
             crash();
         }
-        */
-        if (peers.size() > this.quorumSize && this.rnd.nextInt(100) <= this.crashP){
-            crash();
-        }
+        
+        // if (peers.size() > this.quorumSize && this.rnd.nextInt(100) <= this.crashP){
+        //     crash();
+        // }
     }
 
     private void crash(){
@@ -380,19 +392,20 @@ public class Replica extends AbstractActor {
             heartbeatTimeout.cancel();
         }
         getContext().become(crashed());
-        this.isActive = false;
+        // this.isActive = false;
     }
 
     //------------------------- Leader election system -------------------------\\
 
     private void onLeaderElectionMsg(LeaderElectionMsg msg) {
-        log.info("Replica {} received election message from {} with candidateId {}", this.id, msg.sender.path().name(), msg.candidateId);
+        log.info(Colors.YELLOW + "Replica {} received ELECTION message from {} with candidateId {}" + Colors.RESET, this.id, msg.sender.path().name(), msg.candidateId);
 
         // Determine if the current replica should be the new candidate
         boolean isBetterCandidate = (msg.epoch < this.epoch) ||
                 (msg.epoch == this.epoch && msg.seqNum < this.seqNum) ||
                 (msg.epoch == this.epoch && msg.seqNum == this.seqNum && msg.candidateId < this.id);
 
+        // If I'm the best candidate, use my data, otherwise use msg data
         int newCandidateId = isBetterCandidate ? this.id : msg.candidateId;
         int newEpoch = isBetterCandidate ? this.epoch : msg.epoch;
         int newSeqNum = isBetterCandidate ? this.seqNum : msg.seqNum;
@@ -421,13 +434,9 @@ public class Replica extends AbstractActor {
 
     private void onSynchronizationMsg(SynchronizationMsg msg) {
         log.info("Replica {} received synchronization message from new coordinator {}", this.id, msg.newCoordinator);
-        this.coordinator = msg.newCoordinator;
-        this.epoch = msg.epoch;
-        this.seqNum = msg.seqNum;
-        this.isCoordinator = (msg.newCoordinator == getSelf());
-        resetHeartbeatTimeout();
 
         // Synchronize updates
+        // update messages before storing new info
         for (UpdateMsg update : msg.updates) {
             if (update.seqNum > this.seqNum) {
                 this.seqNum = update.seqNum;
@@ -435,30 +444,38 @@ public class Replica extends AbstractActor {
                 log.info("Replica {} synchronized update with seqNum {} and value {}", this.id, update.seqNum, update.newV);
             }
         }
+
+        this.coordinator = msg.newCoordinator;
+        this.epoch = msg.epoch;
+        this.seqNum = msg.seqNum;
+        this.isCoordinator = (msg.newCoordinator == getSelf());
+        resetHeartbeatTimeout();
     }
 
     private ActorRef getNextReplica() {
-        if (this.peers.isEmpty()) return null;
-        int nextIndex = (this.peers.indexOf(getSelf()) + 1) % this.peers.size();
-        return this.peers.get(nextIndex);
+        if (this.ringTopology.isEmpty()) return null;
+        int nextIndex = (this.ringTopology.indexOf(getSelf()) + 1) % this.ringTopology.size();
+        return this.ringTopology.get(nextIndex);
     }
 
     private void selfElection() {
-        log.info("Replica {} becomes the new coordinator", this.id);
-        this.isCoordinator = true;
-        this.coordinator = getSelf();
-        this.epoch = epoch + 1;
-
-        // Broadcast SynchronizationMsg to all replicas with the list of updates
-        for (ActorRef peer : this.peers) {
-            peer.tell(new SynchronizationMsg(this.epoch, this.seqNum, getSelf(), new ArrayList<>(this.updates)), getSelf());
+        if (getSelf() != this.coordinator){
+            log.info(Colors.GREEN + "Replica {} becomes the new coordinator" + Colors.RESET, this.id);
+            this.isCoordinator = true;
+            this.coordinator = getSelf();
+            this.epoch = epoch + 1;
+    
+            // Broadcast SynchronizationMsg to all replicas with the list of updates
+            for (ActorRef peer : this.peers) {
+                peer.tell(new SynchronizationMsg(this.epoch, this.seqNum, getSelf(), new ArrayList<>(this.updates)), getSelf());
+            }
+            this.heartbeatTimeout = getContext().system().scheduler().scheduleWithFixedDelay(
+                    Duration.ZERO,
+                    Duration.ofSeconds(heartbeatInterval),
+                    this::sendHeartbeat,
+                    getContext().system().dispatcher()
+            );
         }
-        getContext().system().scheduler().scheduleWithFixedDelay(
-                Duration.ZERO,
-                Duration.ofSeconds(heartbeatInterval),
-                this::sendHeartbeat,
-                getContext().system().dispatcher()
-        );
     }
 
     /* -------------------------------------------------------------- */

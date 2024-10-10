@@ -49,7 +49,7 @@ public class Client extends AbstractActor {
         }
     }
 
-    public static class JoinGroupMsg implements Serializable {
+    public static class JoinGroupMsg implements Serializable {   ///DOM perchè un nuovo joingroupmsg?
         public final List<ActorRef> group;   // an array of group members
         public JoinGroupMsg(List<ActorRef> group){
             this.group = group;

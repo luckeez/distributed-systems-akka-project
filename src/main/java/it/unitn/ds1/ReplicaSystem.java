@@ -22,13 +22,13 @@ public class ReplicaSystem {
 
         List<ActorRef> group = new ArrayList<>();
 
-        ActorRef initialCoordinator = system.actorOf(Replica.props(0, true, null), "replica0");
+        ActorRef initialCoordinator = system.actorOf(Replica.props(0, true, null, N), "replica0");
         group.add(initialCoordinator);
         log.info("Added initial coordinator: replica0");
 
         // Add other replicas
         for (int i = 1; i < N; i++) {
-            group.add(system.actorOf(Replica.props(i, false, initialCoordinator), "replica" + i));
+            group.add(system.actorOf(Replica.props(i, false, initialCoordinator, N), "replica" + i));
             log.info("Added replica: replica{}", i);
         }
 
@@ -40,7 +40,7 @@ public class ReplicaSystem {
 
         // Create a client
         ActorRef client = system.actorOf(Client.props(1), "client1");
-        log.info("Created client: client0");
+        log.info("Created client: client0");   /// MOD CLIENT1
         // Send JoinGroupMsg to client
         client.tell(new Client.JoinGroupMsg(group), ActorRef.noSender());
         log.info("Sent JoinGroupMsg to client1");
@@ -52,6 +52,14 @@ public class ReplicaSystem {
        // Send write request
         client.tell(new Client.WriteRequestMsg(client, 42), ActorRef.noSender());
         log.info("Sent WriteRequestMsg from client1");
+
+        try {
+            Thread.sleep(1000);
+        } catch (Exception e) {
+        }
+        // Send read request
+        client.tell(new Client.ReadRequestMsg(client), ActorRef.noSender());
+        log.info("Sent ReadRequestMsg from client1");
 
         try {
             log.info(">>> Press ENTER to exit <<<");
