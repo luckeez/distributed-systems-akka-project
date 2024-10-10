@@ -12,6 +12,8 @@ import akka.actor.ActorRef;
 import akka.event.Logging;
 import akka.event.LoggingAdapter;
 
+import it.unitn.ds1.Colors;
+
 
 public class Client extends AbstractActor {
     private final LoggingAdapter log = Logging.getLogger(getContext().getSystem(), this);
@@ -68,13 +70,13 @@ public class Client extends AbstractActor {
     private void onReadRequestMsg(ReadRequestMsg msg){
         int to = rnd.nextInt(this.replicas.size());
         replicas.get(to).tell(new Replica.ReadRequestMsg(getSelf()), getSelf());
-        log.info("Client {} sent read request to replica {}", this.id, to);
+        log.info(Colors.YELLOW +"Client {} sent read request to replica {}"+Colors.RESET, this.id, to);
     }
 
     private void onWriteRequestMsg(WriteRequestMsg msg){
         int to = rnd.nextInt(this.replicas.size());
         replicas.get(to).tell(new Replica.WriteRequestMsg(getSelf(), msg.proposedV), getSelf());
-        log.info("Client {} sent write request to replica {} with value {}", this.id, to, msg.proposedV);
+        log.info(Colors.YELLOW + "Client {} sent write request to replica {} with value {}"+ Colors.RESET, this.id, to, msg.proposedV);
     }
 
     private void onJoinGroupMsg(JoinGroupMsg msg){
@@ -87,7 +89,7 @@ public class Client extends AbstractActor {
     }
 
     private void onReadResponseMsg(ReadResponseMsg msg){
-        log.info("Client {} received value: {}", this.id, msg.v);
+        log.info(Colors.GREEN + "Client {} received value: {}" + Colors.RESET, this.id, msg.v);
     }
 
     /* --------------------------------------------------------- */
