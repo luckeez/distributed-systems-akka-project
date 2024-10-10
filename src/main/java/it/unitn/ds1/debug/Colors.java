@@ -1,4 +1,4 @@
-package it.unitn.ds1;
+package it.unitn.ds1.debug;
 
 public class Colors {
     public static final String RED = "\u001B[31m";

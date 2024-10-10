@@ -12,7 +12,7 @@ import akka.actor.ActorRef;
 import akka.event.Logging;
 import akka.event.LoggingAdapter;
 
-import it.unitn.ds1.Colors;
+import it.unitn.ds1.debug.Colors;
 
 
 public class Client extends AbstractActor {

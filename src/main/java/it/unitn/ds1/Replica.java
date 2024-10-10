@@ -3,7 +3,6 @@ package it.unitn.ds1;
 import java.io.Serializable;
 import java.time.Duration;
 import java.util.*;
-import java.util.concurrent.TimeUnit;
 
 import akka.actor.Cancellable;
 import akka.event.Logging;
@@ -13,13 +12,12 @@ import akka.actor.AbstractActor;
 import akka.actor.Props;
 import akka.actor.ActorRef;
 
-import it.unitn.ds1.Colors;
+import it.unitn.ds1.debug.Colors;
 
 public class Replica extends AbstractActor {
     private final LoggingAdapter log = Logging.getLogger(getContext().getSystem(), this);
     private final int id;
     private int v;
-    private boolean isActive;
     private List<ActorRef> peers = new ArrayList<>();
     private boolean isCoordinator;
     private final int crashP = 5;
@@ -46,7 +44,6 @@ public class Replica extends AbstractActor {
         this.quorumSize = (N / 2) + 1; // Majority quorum
         this.epoch = 0;
         this.seqNum = 0;
-        this.isActive = true;
         if (isCoordinator && coordinator == null){
             this.coordinator = getSelf();
             this.heartbeatTimeout = getContext().system().scheduler().scheduleWithFixedDelay(
@@ -285,13 +282,13 @@ public class Replica extends AbstractActor {
     private void onWriteOkMsg(WriteOkMsg msg) {
         if (msg.epoch == this.epoch && msg.seqNum == this.seqNum) {
             this.v = this.pendingUpdate.newV;
-            // if (this.writeTimeout != null) {
-            //     this.writeTimeout.cancel();
-            // }
-            log.info("Replica {} received write ok message, updated value to {}", this.id, this.v);
+            if (this.writeTimeout != null) {
+                 this.writeTimeout.cancel();
+            }
+            log.info(Colors.BLUE + "Replica {} update {}:{} {}" + Colors.RESET, this.id, this.epoch, this.seqNum, this.v);
         } else {
             log.error("Replica {} received write ok message with wrong epoch or seqNum", this.id);
-            log.info("Expected epoch: {}, seqNum: {}, got ({},{})", this.epoch, this.seqNum, msg.epoch, msg.seqNum);
+            log.info("Expected : ({},{}) \nGot ({},{})", this.epoch, this.seqNum, msg.epoch, msg.seqNum);
         }
     }
 
@@ -378,7 +375,7 @@ public class Replica extends AbstractActor {
 
     private void decideCrash(){
         
-        if (this.isCoordinator && this.rnd.nextInt(100) <= 5) {
+        if (this.isCoordinator && this.rnd.nextInt(100) <= 5 && this.ringTopology.size() > this.quorumSize) {
             crash();
         }
         
