@@ -17,6 +17,12 @@ public class ReplicaSystem {
     private static final LoggingAdapter log = Logging.getLogger(ActorSystem.create("replicasystem"), ReplicaSystem.class);
     final static int N = 10;
 
+    public static void getInfo(List<ActorRef> group){
+        for (ActorRef peer : group){
+            peer.tell(new Replica.GetInfoMsg(), ActorRef.noSender());
+        }
+    }
+
     public static void main(String[] args) {
         final ActorSystem system = ActorSystem.create("replicasystem");
 
@@ -85,6 +91,11 @@ public class ReplicaSystem {
                     case 'r':
                         // TODO read
                         log.warning("Console read");
+                        break;
+                    
+                    case 'p':
+                        log.warning("Console get info");
+                        getInfo(group);
                         break;
 
                     case 'q':

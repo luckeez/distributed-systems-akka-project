@@ -68,6 +68,13 @@ public class Client extends AbstractActor {
         }
     }
 
+    public static class WriteAckMsg implements Serializable{
+        public final int proposedV;
+        public WriteAckMsg(int proposedV){
+            this.proposedV = proposedV;
+        }
+    }
+
     public static class ReadRequestTimeoutMsg implements Serializable {
         public final ActorRef replica;
         public ReadRequestTimeoutMsg(ActorRef replica) {
@@ -106,13 +113,13 @@ public class Client extends AbstractActor {
         replicas.get(to).tell(new Replica.WriteRequestMsg(getSelf(), msg.proposedV), getSelf());
         log.info(Colors.YELLOW + "Client {} sent write request to replica {} with value {}"+ Colors.RESET, this.id, to, msg.proposedV);
 
-        // this.writeRequestTimeout = getContext().system().scheduler().scheduleOnce(
-        //         Duration.ofSeconds(2),  // duration
-        //         getSelf(),   // receiver
-        //         new WriteRequestTimeoutMsg(replicas.get(to), msg.proposedV), // message type
-        //         getContext().system().dispatcher(), // process
-        //         getSelf() // sender
-        // );
+        this.writeRequestTimeout = getContext().system().scheduler().scheduleOnce(
+                Duration.ofSeconds(2),  // duration
+                getSelf(),   // receiver
+                new WriteRequestTimeoutMsg(replicas.get(to), msg.proposedV), // message type
+                getContext().system().dispatcher(), // process
+                getSelf() // sender
+        );
     }
 
     private void onJoinGroupMsg(JoinGroupMsg msg){
@@ -138,6 +145,13 @@ public class Client extends AbstractActor {
         log.info(Colors.GREEN + "Client {} read done: {}" + Colors.RESET, this.id, msg.v);
     }
 
+    private void onWriteAckMsg(WriteAckMsg msg){
+        // TODO handle msg.proposedV in the queue?
+        if (writeRequestTimeout != null && !writeRequestTimeout.isCancelled()) {
+            writeRequestTimeout.cancel();
+        }
+        log.info(Colors.GREEN + "Client {} write done (received ACK) of value {}" + Colors.RESET, this.id, msg.proposedV);
+    }
 
     private void onReadRequestTimeoutMsg(ReadRequestTimeoutMsg msg){
         log.info(Colors.PURPLE + "Client READ TIMEOUT" + Colors.RESET);
@@ -198,6 +212,7 @@ public class Client extends AbstractActor {
             .match(WriteRequestMsg.class, this::onWriteRequestMsg)
             .match(ReadRequestTimeoutMsg.class, this::onReadRequestTimeoutMsg)
             .match(WriteRequestTimeoutMsg.class, this::onWriteRequestTimeoutMsg)
+            .match(WriteAckMsg.class, this::onWriteAckMsg)
             .build();
     }
     

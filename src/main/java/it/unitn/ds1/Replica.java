@@ -4,8 +4,6 @@ import java.io.Serializable;
 import java.time.Duration;
 import java.util.*;
 
-import org.slf4j.MDC;
-
 import akka.actor.Cancellable;
 import akka.event.Logging;
 import akka.event.LoggingAdapter;
@@ -211,6 +209,12 @@ public class Replica extends AbstractActor {
         }
     }
 
+
+    // DEV
+    public static class GetInfoMsg implements Serializable {
+        public GetInfoMsg() {};
+    }
+
     /*------------- Actor logic -------------------------------------------- */
 
     private void onJoinGroupMsg(JoinGroupMsg msg){
@@ -250,6 +254,8 @@ public class Replica extends AbstractActor {
             // }
 
             multicast(this.pendingUpdate, this.peers);
+
+            tellToReplica(msg.sender, new Client.WriteAckMsg(msg.proposedV));
 
             log.info("Coordinator {} broadcasted update message with value {}", this.id, msg.proposedV);
         } else {
@@ -304,6 +310,12 @@ public class Replica extends AbstractActor {
             log.error("Replica {} received write ok message with wrong epoch or seqNum", this.id);
             log.info("Expected : ({},{}) \nGot ({},{})", this.epoch, this.seqNum, msg.epoch, msg.seqNum);
         }
+    }
+
+    // DEV
+    private void onGetInfoMsg(GetInfoMsg msg){
+        String str = "Epoch and SeqNum " + this.epoch + " - " + this.seqNum + "\nUpdates " + this.updates;
+        log.warning("REPLICA {} INFO\nCoordinator: {}\n Peers {}\n{}", this.id, this.coordinator, this.peers, str);
     }
 
     //------------------------- Crash detection system -------------------------\\
@@ -554,6 +566,7 @@ public class Replica extends AbstractActor {
                 .match(LeaderElectionMsg.class, this::onLeaderElectionMsg)
                 .match(SynchronizationMsg.class, this::onSynchronizationMsg)
                 .match(CoordinatorMsg.class, this::onCoordinatorMsg)
+                .match(GetInfoMsg.class, this::onGetInfoMsg) //DEV
                 .build();
     }
 
