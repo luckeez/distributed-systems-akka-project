@@ -5,19 +5,19 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
 
-import javax.swing.AbstractAction;
-
-import java.util.Collections;
-
 import akka.actor.AbstractActor;
 import akka.actor.Props;
 import akka.actor.ActorRef;
 
-import it.unitn.ds1.Replica.JoinGroupMsg;
+import akka.event.Logging;
+import akka.event.LoggingAdapter;
+
+import it.unitn.ds1.debug.Colors;
 
 
 public class Client extends AbstractActor {
-    private int id;
+    private final LoggingAdapter log = Logging.getLogger(getContext().getSystem(), this);
+    private final int id;
     private List<ActorRef> replicas = new ArrayList<>();
     private final Random rnd;
 
@@ -51,24 +51,33 @@ public class Client extends AbstractActor {
         }
     }
 
+    public static class JoinGroupMsg implements Serializable {   ///DOM perchè un nuovo joingroupmsg?
+        public final List<ActorRef> group;   // an array of group members
+        public JoinGroupMsg(List<ActorRef> group){
+            this.group = group;
+        }
+    }
+
+    public static class ReadResponseMsg implements Serializable{
+        public final int v;
+        public ReadResponseMsg(int v){
+            this.v = v;
+        }
+    }
 
     /* ---------------- Client logic ----------------- */
 
-    private void sendReadRequest(){
+    private void onReadRequestMsg(ReadRequestMsg msg){
         int to = rnd.nextInt(this.replicas.size());
-        replicas.get(to).tell(new ReadRequestMsg(getSelf()), getSelf());
+        replicas.get(to).tell(new Replica.ReadRequestMsg(getSelf()), getSelf());
+        log.info(Colors.YELLOW +"Client {} sent read request to replica {}"+Colors.RESET, this.id, to);
     }
 
-    private void sendWriteRequest(int proposedV){
+    private void onWriteRequestMsg(WriteRequestMsg msg){
         int to = rnd.nextInt(this.replicas.size());
-        replicas.get(to).tell(new WriteRequestMsg(getSelf(), proposedV), getSelf());
+        replicas.get(to).tell(new Replica.WriteRequestMsg(getSelf(), msg.proposedV), getSelf());
+        log.info(Colors.YELLOW + "Client {} sent write request to replica {} with value {}"+ Colors.RESET, this.id, to, msg.proposedV);
     }
-
-
-
-
-
-
 
     private void onJoinGroupMsg(JoinGroupMsg msg){
         for (ActorRef a : msg.group){
@@ -76,11 +85,12 @@ public class Client extends AbstractActor {
                 this.replicas.add(a);  // copy all replicas except for self
             }
         }
+        log.info("Client {} joined group with {} replicas", this.id, this.replicas.size());
     }
 
-
-
-
+    private void onReadResponseMsg(ReadResponseMsg msg){
+        log.info(Colors.GREEN + "Client {} received value: {}" + Colors.RESET, this.id, msg.v);
+    }
 
     /* --------------------------------------------------------- */
 
@@ -90,10 +100,9 @@ public class Client extends AbstractActor {
     public Receive createReceive() {
         return receiveBuilder()
             .match(JoinGroupMsg.class, this::onJoinGroupMsg)
-        .build();
+            .match(ReadResponseMsg.class, this::onReadResponseMsg)
+            .match(ReadRequestMsg.class, this::onReadRequestMsg)
+            .match(WriteRequestMsg.class, this::onWriteRequestMsg)
+            .build();
     }
-
-
-
-
 }
