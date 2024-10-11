@@ -1,0 +1,24 @@
+2024-10-11 12:56:30 INFO  - Client 1 joined group with 10 replicas
+2024-10-11 12:56:32 INFO  - [33mClient 1 read req to replica 1[0m
+2024-10-11 12:56:32 INFO  - [32mClient 1 read done: 0[0m
+2024-10-11 12:56:35 INFO  - [33mClient 1 read req to replica 6[0m
+2024-10-11 12:56:35 INFO  - [32mClient 1 read done: 0[0m
+2024-10-11 12:56:38 INFO  - [33mClient 1 sent write request to replica 2 with value 27[0m
+2024-10-11 12:56:42 INFO  - [33mClient 1 read req to replica 4[0m
+2024-10-11 12:56:42 INFO  - [32mClient 1 read done: 27[0m
+2024-10-11 12:56:44 INFO  - [33mClient 1 sent write request to replica 2 with value 84[0m
+2024-10-11 12:56:47 INFO  - [33mClient 1 read req to replica 1[0m
+2024-10-11 12:56:47 INFO  - [32mClient 1 read done: 84[0m
+2024-10-11 12:56:51 INFO  - [33mClient 1 sent write request to replica 0 with value 49[0m
+2024-10-11 12:56:54 INFO  - [33mClient 1 read req to replica 5[0m
+2024-10-11 12:56:54 INFO  - [32mClient 1 read done: 84[0m
+2024-10-11 12:56:57 INFO  - [33mClient 1 read req to replica 7[0m
+2024-10-11 12:56:57 INFO  - [32mClient 1 read done: 84[0m
+2024-10-11 12:56:59 INFO  - [33mClient 1 read req to replica 3[0m
+2024-10-11 12:56:59 INFO  - [32mClient 1 read done: 84[0m
+2024-10-11 12:57:02 INFO  - [33mClient 1 read req to replica 4[0m
+2024-10-11 12:57:02 INFO  - [32mClient 1 read done: 84[0m
+2024-10-11 12:57:05 INFO  - [33mClient 1 read req to replica 2[0m
+2024-10-11 12:57:05 INFO  - [32mClient 1 read done: 84[0m
+2024-10-11 12:57:07 INFO  - [33mClient 1 read req to replica 7[0m
+2024-10-11 12:57:07 INFO  - [32mClient 1 read done: 84[0m

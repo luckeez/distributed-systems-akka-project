@@ -1,6 +1,7 @@
 package it.unitn.ds1;
 
 import java.io.Serializable;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
@@ -8,7 +9,7 @@ import java.util.Random;
 import akka.actor.AbstractActor;
 import akka.actor.Props;
 import akka.actor.ActorRef;
-
+import akka.actor.Cancellable;
 import akka.event.Logging;
 import akka.event.LoggingAdapter;
 
@@ -20,12 +21,13 @@ public class Client extends AbstractActor {
     private final int id;
     private List<ActorRef> replicas = new ArrayList<>();
     private final Random rnd;
+    private Cancellable requestScheduler;
 
     // CONSTRUCTOR
     public Client(int id){
         this.id = id;
         this.rnd = new Random();
-    }
+    }   
 
     static public Props props(int id){
         return Props.create(Client.class, () -> new Client(id));
@@ -70,7 +72,7 @@ public class Client extends AbstractActor {
     private void onReadRequestMsg(ReadRequestMsg msg){
         int to = rnd.nextInt(this.replicas.size());
         replicas.get(to).tell(new Replica.ReadRequestMsg(getSelf()), getSelf());
-        log.info(Colors.YELLOW +"Client {} sent read request to replica {}"+Colors.RESET, this.id, to);
+        log.info(Colors.YELLOW +"Client {} read req to replica {}"+Colors.RESET, this.id, to);
     }
 
     private void onWriteRequestMsg(WriteRequestMsg msg){
@@ -86,10 +88,34 @@ public class Client extends AbstractActor {
             }
         }
         log.info("Client {} joined group with {} replicas", this.id, this.replicas.size());
+        // Schedule periodic crash decision
+        this.requestScheduler = getContext().system().scheduler().scheduleWithFixedDelay(
+                Duration.ZERO,
+                Duration.ofSeconds(2),
+                this::sendRequest,
+                getContext().system().dispatcher()
+        );
     }
 
     private void onReadResponseMsg(ReadResponseMsg msg){
-        log.info(Colors.GREEN + "Client {} received value: {}" + Colors.RESET, this.id, msg.v);
+        log.info(Colors.GREEN + "Client {} read done: {}" + Colors.RESET, this.id, msg.v);
+    }
+
+    private void sendRequest(){
+        int delay = rnd.nextInt(2000);
+        try {
+            // introduce random delay between requests
+            Thread.sleep(delay);
+        } catch (Exception e){
+        }
+        if (delay%2 == 0){
+            // if delay is even, send a read request
+            getSelf().tell(new ReadRequestMsg(getSelf()), ActorRef.noSender());
+        } else {
+            // if delay is odd, send a write request with a random number
+            getSelf().tell(new WriteRequestMsg(getSelf(), rnd.nextInt(100)), ActorRef.noSender());
+        }
+
     }
 
     /* --------------------------------------------------------- */
@@ -104,5 +130,12 @@ public class Client extends AbstractActor {
             .match(ReadRequestMsg.class, this::onReadRequestMsg)
             .match(WriteRequestMsg.class, this::onWriteRequestMsg)
             .build();
+    }
+    
+    @Override
+    public void postStop() {
+        if (requestScheduler != null && !requestScheduler.isCancelled()){
+            requestScheduler.cancel();
+        }
     }
 }

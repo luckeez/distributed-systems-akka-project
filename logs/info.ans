@@ -1,0 +1,184 @@
+2024-10-11 12:56:29 INFO  - Slf4jLogger started
+2024-10-11 12:56:30 INFO  - Slf4jLogger started
+2024-10-11 12:56:30 INFO  - Added initial coordinator: replica0
+2024-10-11 12:56:30 INFO  - Added replica: replica1
+2024-10-11 12:56:30 INFO  - Added replica: replica2
+2024-10-11 12:56:30 INFO  - Added replica: replica3
+2024-10-11 12:56:30 INFO  - Added replica: replica4
+2024-10-11 12:56:30 INFO  - Added replica: replica5
+2024-10-11 12:56:30 INFO  - Added replica: replica6
+2024-10-11 12:56:30 INFO  - Added replica: replica7
+2024-10-11 12:56:30 INFO  - Added replica: replica8
+2024-10-11 12:56:30 INFO  - Added replica: replica9
+2024-10-11 12:56:30 INFO  - Sent JoinGroupMsg to: replica0
+2024-10-11 12:56:30 INFO  - Sent JoinGroupMsg to: replica1
+2024-10-11 12:56:30 INFO  - Sent JoinGroupMsg to: replica2
+2024-10-11 12:56:30 INFO  - Sent JoinGroupMsg to: replica3
+2024-10-11 12:56:30 INFO  - Sent JoinGroupMsg to: replica4
+2024-10-11 12:56:30 INFO  - Sent JoinGroupMsg to: replica5
+2024-10-11 12:56:30 INFO  - Sent JoinGroupMsg to: replica6
+2024-10-11 12:56:30 INFO  - Replica 4 joined group with 10 peers
+2024-10-11 12:56:30 INFO  - Replica 3 joined group with 10 peers
+2024-10-11 12:56:30 INFO  - Replica 8 joined group with 10 peers
+2024-10-11 12:56:30 INFO  - Replica 9 joined group with 10 peers
+2024-10-11 12:56:30 INFO  - Replica 5 joined group with 10 peers
+2024-10-11 12:56:30 INFO  - Replica 2 joined group with 10 peers
+2024-10-11 12:56:30 INFO  - Replica 6 joined group with 10 peers
+2024-10-11 12:56:30 INFO  - Replica 0 joined group with 10 peers
+2024-10-11 12:56:30 INFO  - Replica 7 joined group with 10 peers
+2024-10-11 12:56:30 INFO  - Sent JoinGroupMsg to: replica7
+2024-10-11 12:56:30 INFO  - Replica 1 joined group with 10 peers
+2024-10-11 12:56:30 INFO  - Sent JoinGroupMsg to: replica8
+2024-10-11 12:56:30 INFO  - Sent JoinGroupMsg to: replica9
+2024-10-11 12:56:30 INFO  - Created client: client0
+2024-10-11 12:56:30 INFO  - Sent JoinGroupMsg to client1
+2024-10-11 12:56:30 INFO  - >>> Press ENTER to exit <<<
+2024-10-11 12:56:32 INFO  - Replica 1 sent value 0 to client
+2024-10-11 12:56:33 INFO  - [31mReplica 1 detected a timeout, assuming coordinator Actor[akka://replicasystem/user/replica0#-1419933489] CRASHED[0m
+2024-10-11 12:56:33 INFO  - [31mReplica 2 detected a timeout, assuming coordinator Actor[akka://replicasystem/user/replica0#-1419933489] CRASHED[0m
+2024-10-11 12:56:33 INFO  - [31mReplica 3 detected a timeout, assuming coordinator Actor[akka://replicasystem/user/replica0#-1419933489] CRASHED[0m
+2024-10-11 12:56:33 INFO  - [33mReplica 2 received ELECTION message from replica1 with candidateId 1[0m
+2024-10-11 12:56:33 INFO  - [31mReplica 4 detected a timeout, assuming coordinator Actor[akka://replicasystem/user/replica0#-1419933489] CRASHED[0m
+2024-10-11 12:56:33 INFO  - [33mReplica 5 received ELECTION message from replica4 with candidateId 4[0m
+2024-10-11 12:56:33 INFO  - [33mReplica 3 received ELECTION message from replica2 with candidateId 2[0m
+2024-10-11 12:56:33 INFO  - [33mReplica 4 received ELECTION message from replica3 with candidateId 3[0m
+2024-10-11 12:56:33 INFO  - [33mReplica 6 received ELECTION message from replica5 with candidateId 5[0m
+2024-10-11 12:56:33 INFO  - [33mReplica 3 received ELECTION message from replica2 with candidateId 2[0m
+2024-10-11 12:56:33 INFO  - [31mReplica 5 detected a timeout, assuming coordinator Actor[akka://replicasystem/user/replica0#-1419933489] CRASHED[0m
+2024-10-11 12:56:33 INFO  - [33mReplica 4 received ELECTION message from replica3 with candidateId 3[0m
+2024-10-11 12:56:33 INFO  - [33mReplica 4 received ELECTION message from replica3 with candidateId 3[0m
+2024-10-11 12:56:33 INFO  - [33mReplica 7 received ELECTION message from replica6 with candidateId 6[0m
+2024-10-11 12:56:33 INFO  - [33mReplica 5 received ELECTION message from replica4 with candidateId 4[0m
+2024-10-11 12:56:33 INFO  - [33mReplica 6 received ELECTION message from replica5 with candidateId 5[0m
+2024-10-11 12:56:33 INFO  - [31mReplica 6 detected a timeout, assuming coordinator Actor[akka://replicasystem/user/replica0#-1419933489] CRASHED[0m
+2024-10-11 12:56:33 INFO  - [31mReplica 8 detected a timeout, assuming coordinator Actor[akka://replicasystem/user/replica0#-1419933489] CRASHED[0m
+2024-10-11 12:56:33 INFO  - [33mReplica 5 received ELECTION message from replica4 with candidateId 4[0m
+2024-10-11 12:56:33 INFO  - [33mReplica 6 received ELECTION message from replica5 with candidateId 5[0m
+2024-10-11 12:56:33 INFO  - [31mReplica 9 detected a timeout, assuming coordinator Actor[akka://replicasystem/user/replica0#-1419933489] CRASHED[0m
+2024-10-11 12:56:33 INFO  - [33mReplica 7 received ELECTION message from replica6 with candidateId 6[0m
+2024-10-11 12:56:33 INFO  - [33mReplica 8 received ELECTION message from replica7 with candidateId 7[0m
+2024-10-11 12:56:33 INFO  - [33mReplica 5 received ELECTION message from replica4 with candidateId 4[0m
+2024-10-11 12:56:33 INFO  - [31mReplica 7 detected a timeout, assuming coordinator Actor[akka://replicasystem/user/replica0#-1419933489] CRASHED[0m
+2024-10-11 12:56:33 INFO  - [33mReplica 6 received ELECTION message from replica5 with candidateId 5[0m
+2024-10-11 12:56:33 INFO  - [33mReplica 9 received ELECTION message from replica8 with candidateId 8[0m
+2024-10-11 12:56:33 INFO  - [33mReplica 1 received ELECTION message from replica9 with candidateId 9[0m
+2024-10-11 12:56:33 INFO  - [33mReplica 2 received ELECTION message from replica1 with candidateId 9[0m
+2024-10-11 12:56:33 INFO  - [33mReplica 8 received ELECTION message from replica7 with candidateId 7[0m
+2024-10-11 12:56:33 INFO  - [33mReplica 7 received ELECTION message from replica6 with candidateId 6[0m
+2024-10-11 12:56:34 INFO  - [33mReplica 6 received ELECTION message from replica5 with candidateId 5[0m
+2024-10-11 12:56:34 INFO  - [33mReplica 7 received ELECTION message from replica6 with candidateId 6[0m
+2024-10-11 12:56:34 INFO  - [33mReplica 7 received ELECTION message from replica6 with candidateId 6[0m
+2024-10-11 12:56:34 INFO  - [33mReplica 9 received ELECTION message from replica8 with candidateId 8[0m
+2024-10-11 12:56:34 INFO  - [33mReplica 1 received ELECTION message from replica9 with candidateId 9[0m
+2024-10-11 12:56:34 INFO  - [33mReplica 3 received ELECTION message from replica2 with candidateId 9[0m
+2024-10-11 12:56:34 INFO  - [33mReplica 8 received ELECTION message from replica7 with candidateId 7[0m
+2024-10-11 12:56:34 INFO  - [33mReplica 8 received ELECTION message from replica7 with candidateId 7[0m
+2024-10-11 12:56:34 INFO  - [33mReplica 8 received ELECTION message from replica7 with candidateId 7[0m
+2024-10-11 12:56:34 INFO  - [33mReplica 4 received ELECTION message from replica3 with candidateId 9[0m
+2024-10-11 12:56:34 INFO  - [33mReplica 2 received ELECTION message from replica1 with candidateId 9[0m
+2024-10-11 12:56:34 INFO  - [33mReplica 7 received ELECTION message from replica6 with candidateId 6[0m
+2024-10-11 12:56:34 INFO  - [33mReplica 9 received ELECTION message from replica8 with candidateId 8[0m
+2024-10-11 12:56:34 INFO  - [33mReplica 1 received ELECTION message from replica9 with candidateId 9[0m
+2024-10-11 12:56:34 INFO  - [33mReplica 8 received ELECTION message from replica7 with candidateId 7[0m
+2024-10-11 12:56:34 INFO  - [33mReplica 9 received ELECTION message from replica8 with candidateId 8[0m
+2024-10-11 12:56:34 INFO  - [33mReplica 5 received ELECTION message from replica4 with candidateId 9[0m
+2024-10-11 12:56:34 INFO  - [33mReplica 6 received ELECTION message from replica5 with candidateId 9[0m
+2024-10-11 12:56:34 INFO  - [33mReplica 9 received ELECTION message from replica8 with candidateId 8[0m
+2024-10-11 12:56:34 INFO  - [33mReplica 1 received ELECTION message from replica9 with candidateId 9[0m
+2024-10-11 12:56:34 INFO  - [33mReplica 2 received ELECTION message from replica1 with candidateId 9[0m
+2024-10-11 12:56:34 INFO  - [33mReplica 3 received ELECTION message from replica2 with candidateId 9[0m
+2024-10-11 12:56:34 INFO  - [33mReplica 8 received ELECTION message from replica7 with candidateId 7[0m
+2024-10-11 12:56:34 INFO  - [33mReplica 4 received ELECTION message from replica3 with candidateId 9[0m
+2024-10-11 12:56:34 INFO  - [33mReplica 3 received ELECTION message from replica2 with candidateId 9[0m
+2024-10-11 12:56:34 INFO  - [33mReplica 7 received ELECTION message from replica6 with candidateId 9[0m
+2024-10-11 12:56:34 INFO  - [33mReplica 9 received ELECTION message from replica8 with candidateId 8[0m
+2024-10-11 12:56:34 INFO  - [33mReplica 1 received ELECTION message from replica9 with candidateId 9[0m
+2024-10-11 12:56:34 INFO  - [33mReplica 2 received ELECTION message from replica1 with candidateId 9[0m
+2024-10-11 12:56:34 INFO  - [33mReplica 5 received ELECTION message from replica4 with candidateId 9[0m
+2024-10-11 12:56:34 INFO  - [33mReplica 4 received ELECTION message from replica3 with candidateId 9[0m
+2024-10-11 12:56:34 INFO  - [33mReplica 8 received ELECTION message from replica7 with candidateId 9[0m
+2024-10-11 12:56:34 INFO  - [33mReplica 6 received ELECTION message from replica5 with candidateId 9[0m
+2024-10-11 12:56:34 INFO  - [33mReplica 9 received ELECTION message from replica8 with candidateId 8[0m
+2024-10-11 12:56:34 INFO  - [33mReplica 1 received ELECTION message from replica9 with candidateId 9[0m
+2024-10-11 12:56:34 INFO  - [33mReplica 2 received ELECTION message from replica1 with candidateId 9[0m
+2024-10-11 12:56:34 INFO  - [33mReplica 3 received ELECTION message from replica2 with candidateId 9[0m
+2024-10-11 12:56:34 INFO  - [33mReplica 4 received ELECTION message from replica3 with candidateId 9[0m
+2024-10-11 12:56:34 INFO  - [33mReplica 7 received ELECTION message from replica6 with candidateId 9[0m
+2024-10-11 12:56:34 INFO  - [33mReplica 1 received ELECTION message from replica9 with candidateId 9[0m
+2024-10-11 12:56:34 INFO  - [33mReplica 8 received ELECTION message from replica7 with candidateId 9[0m
+2024-10-11 12:56:34 INFO  - [33mReplica 1 received ELECTION message from replica9 with candidateId 9[0m
+2024-10-11 12:56:34 INFO  - [33mReplica 9 received ELECTION message from replica8 with candidateId 8[0m
+2024-10-11 12:56:34 INFO  - [33mReplica 5 received ELECTION message from replica4 with candidateId 9[0m
+2024-10-11 12:56:34 INFO  - [33mReplica 9 received ELECTION message from replica8 with candidateId 9[0m
+2024-10-11 12:56:34 INFO  - [33mReplica 3 received ELECTION message from replica2 with candidateId 9[0m
+2024-10-11 12:56:34 INFO  - [33mReplica 2 received ELECTION message from replica1 with candidateId 9[0m
+2024-10-11 12:56:34 INFO  - [33mReplica 4 received ELECTION message from replica3 with candidateId 9[0m
+2024-10-11 12:56:34 INFO  - [32mReplica 9 becomes the new coordinator[0m
+2024-10-11 12:56:34 INFO  - [33mReplica 5 received ELECTION message from replica4 with candidateId 9[0m
+2024-10-11 12:56:34 INFO  - [33mReplica 1 received ELECTION message from replica9 with candidateId 9[0m
+2024-10-11 12:56:34 INFO  - [33mReplica 2 received ELECTION message from replica1 with candidateId 9[0m
+2024-10-11 12:56:34 INFO  - [33mReplica 3 received ELECTION message from replica2 with candidateId 9[0m
+2024-10-11 12:56:34 INFO  - [33mReplica 2 received ELECTION message from replica1 with candidateId 9[0m
+2024-10-11 12:56:34 INFO  - [33mReplica 6 received ELECTION message from replica5 with candidateId 9[0m
+2024-10-11 12:56:34 INFO  - [33mReplica 3 received ELECTION message from replica2 with candidateId 9[0m
+2024-10-11 12:56:34 INFO  - [33mReplica 4 received ELECTION message from replica3 with candidateId 9[0m
+2024-10-11 12:56:34 INFO  - Replica 1 received synchronization message from new coordinator Actor[akka://replicasystem/user/replica9#-1683434059]
+2024-10-11 12:56:34 INFO  - [33mReplica 7 received ELECTION message from replica6 with candidateId 9[0m
+2024-10-11 12:56:34 INFO  - [33mReplica 5 received ELECTION message from replica4 with candidateId 9[0m
+2024-10-11 12:56:34 INFO  - [33mReplica 6 received ELECTION message from replica5 with candidateId 9[0m
+2024-10-11 12:56:34 INFO  - Replica 2 received synchronization message from new coordinator Actor[akka://replicasystem/user/replica9#-1683434059]
+2024-10-11 12:56:34 INFO  - Replica 4 received synchronization message from new coordinator Actor[akka://replicasystem/user/replica9#-1683434059]
+2024-10-11 12:56:34 INFO  - Replica 3 received synchronization message from new coordinator Actor[akka://replicasystem/user/replica9#-1683434059]
+2024-10-11 12:56:34 INFO  - Replica 5 received synchronization message from new coordinator Actor[akka://replicasystem/user/replica9#-1683434059]
+2024-10-11 12:56:34 INFO  - Replica 6 received synchronization message from new coordinator Actor[akka://replicasystem/user/replica9#-1683434059]
+2024-10-11 12:56:34 INFO  - Replica 7 received synchronization message from new coordinator Actor[akka://replicasystem/user/replica9#-1683434059]
+2024-10-11 12:56:35 INFO  - Replica 8 received synchronization message from new coordinator Actor[akka://replicasystem/user/replica9#-1683434059]
+2024-10-11 12:56:35 INFO  - Replica 6 sent value 0 to client
+2024-10-11 12:56:38 INFO  - Replica 2 forwarded write request to coordinator
+2024-10-11 12:56:39 INFO  - Replica 1 received update message with value 27
+2024-10-11 12:56:39 INFO  - Replica 2 received update message with value 27
+2024-10-11 12:56:39 INFO  - Replica 3 received update message with value 27
+2024-10-11 12:56:39 INFO  - Replica 4 received update message with value 27
+2024-10-11 12:56:39 INFO  - Replica 5 received update message with value 27
+2024-10-11 12:56:39 INFO  - Replica 6 received update message with value 27
+2024-10-11 12:56:39 INFO  - Coordinator 9 broadcasted update message with value 27
+2024-10-11 12:56:39 INFO  - Replica 7 received update message with value 27
+2024-10-11 12:56:39 INFO  - [34mReplica 1 update 1:1 27[0m
+2024-10-11 12:56:39 INFO  - Replica 8 received update message with value 27
+2024-10-11 12:56:39 INFO  - [34mReplica 2 update 1:1 27[0m
+2024-10-11 12:56:39 INFO  - [34mReplica 3 update 1:1 27[0m
+2024-10-11 12:56:39 INFO  - [34mReplica 4 update 1:1 27[0m
+2024-10-11 12:56:39 INFO  - [34mReplica 5 update 1:1 27[0m
+2024-10-11 12:56:39 INFO  - [34mReplica 6 update 1:1 27[0m
+2024-10-11 12:56:39 INFO  - [34mReplica 7 update 1:1 27[0m
+2024-10-11 12:56:39 INFO  - Coordinator 9 received enough acks, broadcasted write ok message
+2024-10-11 12:56:39 INFO  - [34mReplica 8 update 1:1 27[0m
+2024-10-11 12:56:42 INFO  - Replica 4 sent value 27 to client
+2024-10-11 12:56:44 INFO  - Replica 2 forwarded write request to coordinator
+2024-10-11 12:56:44 INFO  - Replica 1 received update message with value 84
+2024-10-11 12:56:44 INFO  - Replica 2 received update message with value 84
+2024-10-11 12:56:44 INFO  - Replica 3 received update message with value 84
+2024-10-11 12:56:44 INFO  - Replica 5 received update message with value 84
+2024-10-11 12:56:44 INFO  - Replica 7 received update message with value 84
+2024-10-11 12:56:44 INFO  - Replica 6 received update message with value 84
+2024-10-11 12:56:44 INFO  - Replica 4 received update message with value 84
+2024-10-11 12:56:44 INFO  - Coordinator 9 broadcasted update message with value 84
+2024-10-11 12:56:45 INFO  - [34mReplica 1 update 1:2 84[0m
+2024-10-11 12:56:45 INFO  - [34mReplica 2 update 1:2 84[0m
+2024-10-11 12:56:45 INFO  - Replica 8 received update message with value 84
+2024-10-11 12:56:45 INFO  - [34mReplica 3 update 1:2 84[0m
+2024-10-11 12:56:45 INFO  - [34mReplica 4 update 1:2 84[0m
+2024-10-11 12:56:45 INFO  - [34mReplica 5 update 1:2 84[0m
+2024-10-11 12:56:45 INFO  - [34mReplica 6 update 1:2 84[0m
+2024-10-11 12:56:45 INFO  - [34mReplica 7 update 1:2 84[0m
+2024-10-11 12:56:45 INFO  - Coordinator 9 received enough acks, broadcasted write ok message
+2024-10-11 12:56:45 INFO  - [34mReplica 8 update 1:2 84[0m
+2024-10-11 12:56:47 INFO  - Replica 1 sent value 84 to client
+2024-10-11 12:56:54 INFO  - Replica 5 sent value 84 to client
+2024-10-11 12:56:57 INFO  - Replica 7 sent value 84 to client
+2024-10-11 12:56:59 INFO  - Replica 3 sent value 84 to client
+2024-10-11 12:57:02 INFO  - Replica 4 sent value 84 to client
+2024-10-11 12:57:05 INFO  - Replica 2 sent value 84 to client
+2024-10-11 12:57:07 INFO  - Replica 7 sent value 84 to client
+2024-10-11 12:57:11 INFO  - Running CoordinatedShutdown with reason [ActorSystemTerminateReason]
+2024-10-11 12:57:11 INFO  - Actor SYSTEM terminated

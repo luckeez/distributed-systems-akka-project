@@ -4,6 +4,8 @@ import java.io.Serializable;
 import java.time.Duration;
 import java.util.*;
 
+import org.slf4j.MDC;
+
 import akka.actor.Cancellable;
 import akka.event.Logging;
 import akka.event.LoggingAdapter;
@@ -26,19 +28,20 @@ public class Replica extends AbstractActor {
     private int epoch;
     private int seqNum;
     private final int quorumSize;
-    private int ackCount = 0;
+    private int ackCount = 1;
     private UpdateMsg pendingUpdate;
     private Cancellable writeTimeout;
     private Cancellable heartbeatTimeout;
+    private Cancellable crashTimeout;
     private final int heartbeatInterval = 1; // seconds
     private final int heartbeatTimeoutDuration = 2; // seconds
     private HashMap<ActorRef, Cancellable> replicaTimeouts = new HashMap<>();
     private List<UpdateMsg> updates = new ArrayList<>();
-    private List<ActorRef> ringTopology;
 
     // CONSTRUCTOR
     public Replica(int id, boolean isCoordinator, ActorRef coordinator, int N){
         this.id = id;
+        // MDC.put("replicaId", String.valueOf(this.id));
         this.isCoordinator = isCoordinator;
         this.rnd = new Random();
         this.quorumSize = (N / 2) + 1; // Majority quorum
@@ -56,7 +59,7 @@ public class Replica extends AbstractActor {
             this.coordinator = coordinator;
         }
         // Schedule periodic crash decision
-        getContext().system().scheduler().scheduleWithFixedDelay(
+        this.crashTimeout = getContext().system().scheduler().scheduleWithFixedDelay(
                 Duration.ZERO,
                 Duration.ofSeconds(2),
                 this::decideCrash,
@@ -116,7 +119,6 @@ public class Replica extends AbstractActor {
 
     public static class ReadRequestMsg implements Serializable {
         public final ActorRef sender;
-
         public ReadRequestMsg(ActorRef sender) {
             this.sender = sender;
         }
@@ -152,6 +154,10 @@ public class Replica extends AbstractActor {
 
     public static class TimeoutMsg implements Serializable {
         public TimeoutMsg() {}
+    }
+
+        public static class WriteTimeoutMsg implements Serializable {
+        public WriteTimeoutMsg() {}
     }
 
     public static class ReplicaTimeoutMsg implements Serializable {
@@ -209,11 +215,8 @@ public class Replica extends AbstractActor {
 
     private void onJoinGroupMsg(JoinGroupMsg msg){
         for (ActorRef a : msg.group){
-            if (!a.equals(getSelf())){
-                this.peers.add(a);  // copy all replicas except for self
-            }
+            this.peers.add(a);  // copy all replicas (also itself because it is checked in multicast)
         }
-        this.ringTopology = new ArrayList<>(msg.group);
         log.info("Replica {} joined group with {} peers", this.id, this.peers.size());
     }
 
@@ -229,14 +232,14 @@ public class Replica extends AbstractActor {
         if (this.isCoordinator){
             this.seqNum += 1;
             this.pendingUpdate = new UpdateMsg(this.epoch, this.seqNum, msg.proposedV);
-            this.ackCount = 0;
+            this.ackCount = 1;
             this.updates.add(pendingUpdate);
 
             // IF crash while writing
             this.writeTimeout = getContext().system().scheduler().scheduleOnce(
                     Duration.ofSeconds(heartbeatTimeoutDuration),
                     getSelf(),
-                    new TimeoutMsg(),
+                    new WriteTimeoutMsg(),
                     getContext().system().dispatcher(),
                     getSelf()
             );
@@ -272,7 +275,7 @@ public class Replica extends AbstractActor {
         if (this.isCoordinator && ack.epoch == this.epoch && ack.seqNum == this.seqNum) {
             this.ackCount += 1;
             if (this.ackCount >= this.quorumSize) {
-                this.ackCount = 0;
+                this.ackCount = 1;
 
                 // for (ActorRef peer: this.peers){
                 //     peer.tell(new WriteOkMsg(this.epoch, this.seqNum), getSelf());
@@ -344,7 +347,7 @@ public class Replica extends AbstractActor {
     private void onTimeoutMsg(TimeoutMsg msg) {
         log.info(Colors.RED + "Replica {} detected a timeout, assuming coordinator {} CRASHED" + Colors.RESET, this.id, this.coordinator);
         peers.remove(this.coordinator);
-        this.ringTopology.remove(this.coordinator);
+        log.error(Colors.CYAN + "SONO {} e la mia lista di repliche è {}" + Colors.RESET, this.id, this.peers);
         ActorRef nextReplica = getNextReplica();
         if (nextReplica != null) {
             ArrayList<ActorRef> notifiedReplicas = new ArrayList<>();
@@ -355,7 +358,10 @@ public class Replica extends AbstractActor {
             // If this is the only replica left, it becomes the coordinator
             selfElection();
         }
+    }
 
+    private void onWriteTimeoutMsg(WriteTimeoutMsg msg){
+        log.info(Colors.RED + "Coordinator {} detected a timeout while WRITING, assuming replica  CRASHED" + Colors.RESET, this.id);
     }
 
     private void resetReplicaTimeout(ActorRef replica) {
@@ -390,12 +396,11 @@ public class Replica extends AbstractActor {
         } else {
             peers.remove(msg.replica);
         }
-        this.ringTopology.remove(msg.replica);
     }
 
     private void decideCrash(){
         
-        if (this.isCoordinator && this.rnd.nextInt(100) <= this.crashP && this.ringTopology.size() > this.quorumSize) {
+        if (this.isCoordinator && this.rnd.nextInt(100) <= this.crashP && this.peers.size() > this.quorumSize) {
             crash();
         }
         
@@ -408,6 +413,10 @@ public class Replica extends AbstractActor {
         if (this.isCoordinator && heartbeatTimeout != null && !heartbeatTimeout.isCancelled()) {
             heartbeatTimeout.cancel();
         }
+        if (crashTimeout != null && !crashTimeout.isCancelled()) {
+            crashTimeout.cancel();
+        }   
+        log.error(Colors.RED + "SONO  FOTTUTAMENTE CRASHATO e sono {}" + Colors.RESET, this.id);
         getContext().become(crashed());
         // this.isActive = false;
     }
@@ -420,13 +429,12 @@ public class Replica extends AbstractActor {
     private void multicast(Serializable m, List<ActorRef> multicastGroup){
         for (ActorRef peer : multicastGroup){
 
-            // if (!peer.equals(getSelf())){      // using this we can avoid having the ringtopology list (?)
+            if (!peer.equals(getSelf())){
 
-            // simulate network delay
-            introduceNetworkDelay();  // TODO add in all the single "tell"?
-
-            peer.tell(m, getSelf()); 
-            // }
+                // simulate network delay
+                introduceNetworkDelay();
+                peer.tell(m, getSelf()); 
+            }
         }
     }
 
@@ -496,9 +504,9 @@ public class Replica extends AbstractActor {
     }
 
     private ActorRef getNextReplica() {
-        if (this.ringTopology.isEmpty()) return null;
-        int nextIndex = (this.ringTopology.indexOf(getSelf()) + 1) % this.ringTopology.size();
-        return this.ringTopology.get(nextIndex);
+        if (this.peers.isEmpty()) return null;
+        int nextIndex = (this.peers.indexOf(getSelf()) + 1) % this.peers.size();
+        return this.peers.get(nextIndex);
     }
 
     private void selfElection() {
@@ -541,6 +549,7 @@ public class Replica extends AbstractActor {
                 .match(HeartbeatMsg.class, this::onHeartbeatMsg)
                 .match(HeartbeatAckMsg.class, this::onHeartbeatAckMsg)
                 .match(TimeoutMsg.class, this::onTimeoutMsg)
+                .match(WriteTimeoutMsg.class, this::onWriteTimeoutMsg)
                 .match(ReplicaTimeoutMsg.class, this::onReplicaTimeoutMsg)
                 .match(LeaderElectionMsg.class, this::onLeaderElectionMsg)
                 .match(SynchronizationMsg.class, this::onSynchronizationMsg)
@@ -562,5 +571,9 @@ public class Replica extends AbstractActor {
         if (heartbeatTimeout != null && !heartbeatTimeout.isCancelled()) {
             heartbeatTimeout.cancel();
         }
+        if (crashTimeout != null && !crashTimeout.isCancelled()) {
+            crashTimeout.cancel();
+        }
+        // MDC.clear();
     }
 }

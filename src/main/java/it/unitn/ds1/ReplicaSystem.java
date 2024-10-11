@@ -45,31 +45,57 @@ public class ReplicaSystem {
         client.tell(new Client.JoinGroupMsg(group), ActorRef.noSender());
         log.info("Sent JoinGroupMsg to client1");
 
-        // Send read request
-        client.tell(new Client.ReadRequestMsg(client), ActorRef.noSender());
-        log.info("Sent ReadRequestMsg from client1");
+    //     // Send read request
+    //     client.tell(new Client.ReadRequestMsg(client), ActorRef.noSender());
+    //     log.info("Sent ReadRequestMsg from client1");
 
-       // Send write request
-        client.tell(new Client.WriteRequestMsg(client, 42), ActorRef.noSender());
-        log.info("Sent WriteRequestMsg from client1");
+    //    // Send write request
+    //     client.tell(new Client.WriteRequestMsg(client, 42), ActorRef.noSender());
+    //     log.info("Sent WriteRequestMsg from client1");
 
-        try {
-            Thread.sleep(1000);
-        } catch (Exception e) {
-        }
-        // Send read request
-        client.tell(new Client.ReadRequestMsg(client), ActorRef.noSender());
-        log.info("Sent ReadRequestMsg from client1");
+        // try {
+        //     Thread.sleep(1000);
+        // } catch (Exception e) {
+        // }
+        // // Send read request
+        // client.tell(new Client.ReadRequestMsg(client), ActorRef.noSender());
+        // log.info("Sent ReadRequestMsg from client1");
 
-        try {
-            log.info(">>> Press ENTER to exit <<<");
-            System.in.read();
-        } catch (IOException ioe) {
-            log.error("IOException occurred", ioe);
-        } finally {
-            system.terminate();
-            log.info("Actor system terminated");
-            exit(0);
+        log.info(">>> Press ENTER to exit <<<");
+        while(true){
+            try {
+                int input = System.in.read();
+                char ch = (char) input;
+                switch (ch){
+                    case 'c':
+                    // TODO crash
+                        log.info("Console replica crash");
+                        break;
+
+                    case 'l':
+                        // TODO coordinator crash (leader election)
+                        log.warning("Console coordinator crash");
+                        break;
+                    
+                    case 'w':
+                        // TODO write
+                        log.warning("Console write");
+                        break;
+
+                    case 'r':
+                        // TODO read
+                        log.warning("Console read");
+                        break;
+
+                    case 'q':
+                        system.terminate();
+                        log.info("Actor SYSTEM terminated");
+                        exit(0);
+                }
+                
+            } catch (IOException ioe) {
+                log.error("IOException occurred", ioe);
+            }
         }
     }
 }
