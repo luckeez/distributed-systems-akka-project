@@ -183,20 +183,18 @@ public class Client extends AbstractActor {
 
 
     private void sendRequest(){
-        int delay = rnd.nextInt(2000);
-        try {
-            // introduce random delay between requests
-            Thread.sleep(delay);
-        } catch (Exception e){
-        }
-        if (delay%2 == 0){
-            // if delay is even, send a read request
-            getSelf().tell(new ReadRequestMsg(getSelf()), ActorRef.noSender());
-        } else {
-            // if delay is odd, send a write request with a random number
-            getSelf().tell(new WriteRequestMsg(getSelf(), rnd.nextInt(100)), ActorRef.noSender());
-        }
-
+        // int delay = rnd.nextInt(2000);
+        // try {
+        //     // introduce random delay between requests
+        //     Thread.sleep(delay);
+        // } catch (Exception e){}
+        // if (delay%2 == 0){
+        //     // if delay is even, send a read request
+        //     getSelf().tell(new ReadRequestMsg(getSelf()), ActorRef.noSender());
+        // } else {
+        //     // if delay is odd, send a write request with a random number
+        //     getSelf().tell(new WriteRequestMsg(getSelf(), rnd.nextInt(100)), ActorRef.noSender());
+        // }
     }
 
     /* --------------------------------------------------------- */

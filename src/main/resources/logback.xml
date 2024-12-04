@@ -41,6 +41,18 @@
         </filter>
     </appender>
 
+<!-- 
+    <appender name="REPLICA_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>logs/replica-${actorName}.log</file>
+        <encoder>
+            <pattern>%d [%thread] %-5level %logger{35} - %msg%n</pattern>
+        </encoder>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>logs/replica-${actorName}.%d{yyyy-MM-dd}.log</fileNamePattern>
+        </rollingPolicy>
+    </appender>
+ -->
+
     <appender name="CLIENT_FILE" class="ch.qos.logback.core.FileAppender">
         <file>logs/client.ans</file>
         <append>false</append>
@@ -76,6 +88,10 @@
     <logger name="it.unitn.ds1.Client" level="all" additivity="false">
         <appender-ref ref="CLIENT_FILE" />
     </logger>
+
+    <!-- <logger name="it.unitn.ds1.Replica" level="all" additivity="false">
+        <appender-ref ref="REPLICA_FILE" />
+    </logger> -->
 
     <root level="info">
         <appender-ref ref="INFO_FILE" />
