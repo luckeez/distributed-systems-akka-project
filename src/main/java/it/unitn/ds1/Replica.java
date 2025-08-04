@@ -3,6 +3,9 @@ package it.unitn.ds1;
 import java.io.Serializable;
 import java.time.Duration;
 import java.util.*;
+import java.util.concurrent.CopyOnWriteArrayList;
+
+import org.slf4j.MDC;
 
 import akka.actor.Cancellable;
 import akka.event.Logging;
@@ -17,7 +20,7 @@ import it.unitn.ds1.debug.Colors;
 public class Replica extends AbstractActor {
     private final LoggingAdapter log = Logging.getLogger(getContext().getSystem(), this);
     private final int id;
-    private int v;
+    private int v = 12;
     private List<ActorRef> peers = new ArrayList<>();
     private boolean isCoordinator;
     private final int crashP = 5;
@@ -32,14 +35,28 @@ public class Replica extends AbstractActor {
     private Cancellable heartbeatTimeout;
     private Cancellable crashTimeout;
     private final int heartbeatInterval = 1; // seconds
-    private final int heartbeatTimeoutDuration = 2; // seconds
+    private final int heartbeatTimeoutDuration = 3; // seconds
     private HashMap<ActorRef, Cancellable> replicaTimeouts = new HashMap<>();
     private List<UpdateMsg> updates = new ArrayList<>();
+    //DEV
+    private enum State{
+        CRASHED,
+        RUNNING
+    }
+    private State currentState = State.RUNNING;
+    // public enum DebugAction{
+    //     UPDATE_SENDING,
+    //     UPDATE_RECEIVING,
+    //     WRITEOK_SENDING,
+    //     ELECTION,
+    //     DEFAULT
+    // }
+    // private DebugAction debugAction = DebugAction.DEFAULT;
 
     // CONSTRUCTOR
     public Replica(int id, boolean isCoordinator, ActorRef coordinator, int N){
         this.id = id;
-        // MDC.put("replicaId", String.valueOf(this.id));
+        // MDC.put("actorName", String.valueOf(this.id));
         this.isCoordinator = isCoordinator;
         this.rnd = new Random();
         this.quorumSize = (N / 2) + 1; // Majority quorum
@@ -166,6 +183,25 @@ public class Replica extends AbstractActor {
         }
     }
 
+    //DEV
+    public static class CoordinatorCrashMsg implements Serializable {
+        public CoordinatorCrashMsg() {}
+    }
+
+    // DEV
+    public static class ReplicaCrashMsg implements Serializable {
+        public ReplicaCrashMsg() {}
+    }
+
+    // // DEV
+    // public static class DebugMsg implements Serializable {
+    //     public final DebugAction action;
+
+    //     public DebugMsg(DebugAction action) {
+    //         this.action = action;
+    //     }
+    // }
+
     public static class LeaderElectionMsg implements Serializable {
         public final int epoch;
         public final int seqNum;
@@ -253,7 +289,19 @@ public class Replica extends AbstractActor {
             //     peer.tell(this.pendingUpdate, getSelf());
             // }
 
+            // DEV
+            // DEBUG CRASH - during sending of update
+            if (msg.proposedV == 9999){
+                crash();
+            }
             multicast(this.pendingUpdate, this.peers);
+
+            // DEV
+            // DEBUG CRASH - after sending of update
+            if (msg.proposedV == 8888){
+                crash();
+            }
+
 
             tellToReplica(msg.sender, new Client.WriteAckMsg(msg.proposedV));
 
@@ -272,6 +320,12 @@ public class Replica extends AbstractActor {
         this.pendingUpdate = msg;
         this.updates.add(msg);
 
+        // DEV
+        // DEBUG CRASH - after receiving of update
+        if (msg.newV == 7777){
+            crash();
+        }
+
         //getSender().tell(new AckMsg(msg.epoch, msg.seqNum), getSelf());
         tellToReplica(getSender(), new AckMsg(msg.epoch, msg.seqNum));
         log.info("Replica {} received update message with value {}", this.id, msg.newV);
@@ -287,11 +341,17 @@ public class Replica extends AbstractActor {
                 //     peer.tell(new WriteOkMsg(this.epoch, this.seqNum), getSelf());
                 // }
 
+                // DEV ???????????
+                // DEBUG CRASH - during sending writeoks
+                // if (msg.proposedV == 9999){
+                //     crash();
+                // }
+
                 WriteOkMsg m = new WriteOkMsg(this.epoch, this.seqNum);
                 multicast(m, this.peers);
             
                 this.v = this.pendingUpdate.newV;
-                if (this.writeTimeout != null) {
+                if (this.writeTimeout != null && !writeTimeout.isCancelled()) {
                     this.writeTimeout.cancel();
                 }
                 log.info("Coordinator {} received enough acks, broadcasted write ok message", this.id);
@@ -302,7 +362,7 @@ public class Replica extends AbstractActor {
     private void onWriteOkMsg(WriteOkMsg msg) {
         if (msg.epoch == this.epoch && msg.seqNum == this.seqNum) {
             this.v = this.pendingUpdate.newV;
-            if (this.writeTimeout != null) {
+            if (this.writeTimeout != null && !writeTimeout.isCancelled()) {
                  this.writeTimeout.cancel();
             }
             log.info(Colors.BLUE + "Replica {} update {}:{} {}" + Colors.RESET, this.id, this.epoch, this.seqNum, this.v);
@@ -314,12 +374,74 @@ public class Replica extends AbstractActor {
 
     // DEV
     private void onGetInfoMsg(GetInfoMsg msg){
-        String str = "Epoch and SeqNum " + this.epoch + " - " + this.seqNum + "\nUpdates " + this.updates;
-        log.warning("REPLICA {} INFO\nCoordinator: {}\n Peers {}\n{}", this.id, this.coordinator, this.peers, str);
+        if (this.currentState == State.CRASHED){
+            String str = Colors.RED + this.currentState + Colors.RESET;
+            log.info("REPLICA {} INFO\nValue: {}\nState: {}\n", this.id, this.v, str);
+        } else {
+            // peers List cleaning
+            List<String> peersList = this.peers.stream()
+                .map(ref -> ref.path().toString()) 
+                .map(path -> path.replaceAll(".*/user/([^#]+).*", "$1")) 
+                .toList(); 
+
+            // updates list cleaning
+            List<String> updatesList = this.updates.stream()
+            .map(Object::toString) // Converte l'oggetto in stringa
+            .map(s -> s.substring(s.lastIndexOf('$') + 1)) // Estrai tutto dopo l'ultimo "."
+            .toList();
+
+            String state = Colors.GREEN + this.currentState + Colors.RESET;
+            String str_info = "Coordinator: " + Colors.CYAN + this.coordinator.toString().replaceAll(".*/user/([^#]+).*", "$1") + Colors.RESET + "\nPeers: " + peersList + "\n" + "Epoch and SeqNum " + this.epoch + " - " + this.seqNum + "\nUpdates " + updatesList;
+            log.info(Colors.YELLOW + "\nREPLICA {} INFO" + Colors.RESET + "\nValue: {}\nState: {}\n{}\n", this.id, this.v, state, str_info);
+        }
     }
+
+    // DEV
+    private void onCoordinatorCrashMsg(CoordinatorCrashMsg msg){
+        if (this.isCoordinator){
+            log.info("Coordinator {} received console coordinator crash request", this.id);
+            crash();
+        } else {
+            tellToReplica(this.coordinator, msg);
+            log.info("Replica {} forwarded console coordinator crash request to coordinator", this.id);
+        }
+    }
+
+    // DEV
+    private void onReplicaCrashMsg(ReplicaCrashMsg msg){
+        if (!this.isCoordinator){
+            log.info("Replica {} received console replica crash request", this.id);
+            crash();
+        } else {}
+    }
+
+    // // DEV
+    // private void onDebugMsg(DebugMsg msg){
+    //     switch (msg.action){
+    //         case UPDATE_RECEIVING:
+    //             if (this.isCoordinator){
+    //                 tellToReplica(getSelf(), new WriteRequestMsg(getSelf(), 9999));
+    //             } else {
+    //                 tellToReplica(this.coordinator, new WriteRequestMsg(getSelf(), 9999));
+    //             }
+    //             break;
+    //         case UPDATE_SENDING:
+                
+    //             break;
+    //         case WRITEOK_SENDING:
+                
+    //             break;
+    //         case ELECTION:
+                
+    //             break;
+    //         case DEFAULT:
+    //             break;
+    //     }
+    // }
 
     //------------------------- Crash detection system -------------------------\\
 
+    // when replica receives an heartbeat msg, it deletes its timeout -> coordinator is active
     private void onHeartbeatMsg(HeartbeatMsg msg) {
         // log.info("Replica {} received heartbeat message from coordinator", this.id);
         resetHeartbeatTimeout();
@@ -328,11 +450,13 @@ public class Replica extends AbstractActor {
         tellToReplica(getSender(), new HeartbeatAckMsg(this.id));
     }
 
+    // when coordinator receives heartbeatAckMsg, it deletes its replicaTimeout[replica] -> that replica is active 
     private void onHeartbeatAckMsg(HeartbeatAckMsg msg) {
         // log.info("Coordinator {} received heartbeat acknowledgment from replica {}", this.id, msg.replicaId);
         resetReplicaTimeout(getSender());
     }
 
+    // coordinator sends heartbeat to all replicas
     private void sendHeartbeat(){
         // if (this.isActive) {
         // for (ActorRef peer : this.peers) {
@@ -343,6 +467,7 @@ public class Replica extends AbstractActor {
         // }
     }
 
+    // reset replica heartbeat timeout 
     private void resetHeartbeatTimeout(){
         if (this.heartbeatTimeout != null && !this.heartbeatTimeout.isCancelled()){
             this.heartbeatTimeout.cancel();
@@ -356,10 +481,18 @@ public class Replica extends AbstractActor {
         );
     }
 
+    // Replica detects a coordinator crash
     private void onTimeoutMsg(TimeoutMsg msg) {
         log.info(Colors.RED + "Replica {} detected a timeout, assuming coordinator {} CRASHED" + Colors.RESET, this.id, this.coordinator);
         peers.remove(this.coordinator);
-        log.error(Colors.CYAN + "SONO {} e la mia lista di repliche è {}" + Colors.RESET, this.id, this.peers);
+
+        // peers list cleaning
+        List<String> peersList = this.peers.stream()
+        .map(ref -> ref.path().toString()) 
+        .map(path -> path.replaceAll(".*/user/([^#]+).*", "$1")) 
+        .toList(); 
+
+        log.warning(Colors.CYAN + "SONO {} e la mia lista di repliche è {}" + Colors.RESET, this.id, peersList);
         ActorRef nextReplica = getNextReplica();
         if (nextReplica != null) {
             ArrayList<ActorRef> notifiedReplicas = new ArrayList<>();
@@ -413,7 +546,8 @@ public class Replica extends AbstractActor {
     private void decideCrash(){
         
         if (this.isCoordinator && this.rnd.nextInt(100) <= this.crashP && this.peers.size() > this.quorumSize) {
-            crash();
+            // crash();
+            log.warning(Colors.YELLOW + "I'm {} and I SHOULD CRASH" + Colors.RESET, this.id);
         }
         
         // if (peers.size() > this.quorumSize && this.rnd.nextInt(100) <= this.crashP){
@@ -429,6 +563,7 @@ public class Replica extends AbstractActor {
             crashTimeout.cancel();
         }   
         log.error(Colors.RED + "SONO  FOTTUTAMENTE CRASHATO e sono {}" + Colors.RESET, this.id);
+        this.currentState = State.CRASHED;
         getContext().become(crashed());
         // this.isActive = false;
     }
@@ -439,8 +574,10 @@ public class Replica extends AbstractActor {
     }
 
     private void multicast(Serializable m, List<ActorRef> multicastGroup){
-        for (ActorRef peer : multicastGroup){
-
+        CopyOnWriteArrayList<ActorRef> safeMulticastGroup = new CopyOnWriteArrayList<>(multicastGroup);
+        Iterator<ActorRef> iterator = safeMulticastGroup.iterator();
+        while (iterator.hasNext()){
+            ActorRef peer = iterator.next();
             if (!peer.equals(getSelf())){
 
                 // simulate network delay
@@ -459,6 +596,9 @@ public class Replica extends AbstractActor {
 
     private void onLeaderElectionMsg(LeaderElectionMsg msg) {
         log.info(Colors.YELLOW + "Replica {} received ELECTION message from {} with candidateId {}" + Colors.RESET, this.id, msg.sender.path().name(), msg.candidateId);
+
+        // DEV
+        // DEBUG CRASH - during election
 
         // Determine if the current replica should be the new candidate
         boolean isBetterCandidate = (msg.epoch < this.epoch) ||
@@ -541,7 +681,7 @@ public class Replica extends AbstractActor {
                     Duration.ofSeconds(heartbeatInterval),
                     this::sendHeartbeat,
                     getContext().system().dispatcher()
-            );
+            ); 
         }
     }
 
@@ -566,12 +706,16 @@ public class Replica extends AbstractActor {
                 .match(LeaderElectionMsg.class, this::onLeaderElectionMsg)
                 .match(SynchronizationMsg.class, this::onSynchronizationMsg)
                 .match(CoordinatorMsg.class, this::onCoordinatorMsg)
-                .match(GetInfoMsg.class, this::onGetInfoMsg) //DEV
+                .match(GetInfoMsg.class, this::onGetInfoMsg) // DEV
+                .match(CoordinatorCrashMsg.class, this::onCoordinatorCrashMsg) // DEV
+                .match(ReplicaCrashMsg.class, this::onReplicaCrashMsg) // DEV
+                // .match(DebugMsg.class, this::onDebugMsg) // DEV
                 .build();
     }
 
     final AbstractActor.Receive crashed(){
         return receiveBuilder()
+                .match(GetInfoMsg.class, this::onGetInfoMsg)
                 .matchAny(msg -> {})
                 .build();
     }
@@ -587,6 +731,6 @@ public class Replica extends AbstractActor {
         if (crashTimeout != null && !crashTimeout.isCancelled()) {
             crashTimeout.cancel();
         }
-        // MDC.clear();
+        MDC.remove("actorName");
     }
 }
