@@ -47,7 +47,8 @@ public class Client extends AbstractActor {
     // Client Write Request
     public static class WriteRequestMsg implements Serializable{
         public final ActorRef sender;
-        public final int proposedV;
+        // public final int proposedV;
+        public int proposedV;
         public WriteRequestMsg(ActorRef sender, int proposedV){
             this.sender = sender;
             this.proposedV = proposedV;
@@ -84,7 +85,8 @@ public class Client extends AbstractActor {
 
     public static class WriteRequestTimeoutMsg implements Serializable {
         public final ActorRef replica;
-        public final int proposedV;
+        // public final int proposedV;
+        public int proposedV;
         public WriteRequestTimeoutMsg(ActorRef replica, int proposedV){
             this.replica = replica;
             this.proposedV = proposedV;
@@ -170,6 +172,15 @@ public class Client extends AbstractActor {
         if (writeRequestTimeout != null && !writeRequestTimeout.isCancelled()) {
             writeRequestTimeout.cancel();
         }
+
+        // DEV PROVA
+        if (msg.proposedV == 9999){
+            msg.proposedV = 9000;
+        }
+        if (msg.proposedV == 8888){
+            msg.proposedV = 8000;
+        }
+        // PROBLEMA: quando coordinator crasha meentre client fa una write, non deve rimuovere la replica a cui ha inviato la request.
         // remove from the list the crashed replica and resend a write request with the same proposed value
         this.replicas.remove(msg.replica);
         getSelf().tell(new WriteRequestMsg(getSelf(), msg.proposedV), ActorRef.noSender());

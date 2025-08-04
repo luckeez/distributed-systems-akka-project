@@ -1,4 +1,4 @@
-package it.unitn.ds1;
+    package it.unitn.ds1;
 
 import java.io.Serializable;
 import java.time.Duration;
@@ -141,7 +141,8 @@ public class Replica extends AbstractActor {
 
     public static class WriteRequestMsg implements Serializable {
         public final ActorRef sender;
-        public final int proposedV;
+        //public final int proposedV;
+        public int proposedV;
 
         public WriteRequestMsg(ActorRef sender, int proposedV) {
             this.sender = sender;
@@ -293,13 +294,15 @@ public class Replica extends AbstractActor {
             // DEBUG CRASH - during sending of update
             if (msg.proposedV == 9999){
                 crash();
+                return;
             }
-            multicast(this.pendingUpdate, this.peers);
+            multicast(this.pendingUpdate, this.peers); // il coordinator deve settare timer quando invia update a tutti?
 
             // DEV
             // DEBUG CRASH - after sending of update
             if (msg.proposedV == 8888){
                 crash();
+                return;
             }
 
 
@@ -324,6 +327,7 @@ public class Replica extends AbstractActor {
         // DEBUG CRASH - after receiving of update
         if (msg.newV == 7777){
             crash();
+            return;
         }
 
         //getSender().tell(new AckMsg(msg.epoch, msg.seqNum), getSelf());
@@ -343,8 +347,9 @@ public class Replica extends AbstractActor {
 
                 // DEV ???????????
                 // DEBUG CRASH - during sending writeoks
-                // if (msg.proposedV == 9999){
+                // if (msg.proposedV == 6666){
                 //     crash();
+                //     return;
                 // }
 
                 WriteOkMsg m = new WriteOkMsg(this.epoch, this.seqNum);
@@ -567,6 +572,8 @@ public class Replica extends AbstractActor {
         getContext().become(crashed());
         // this.isActive = false;
     }
+
+    //------------------------- Communication system --------------------------\\
 
     private void introduceNetworkDelay(){
         try { Thread.sleep(rnd.nextInt(100)); }

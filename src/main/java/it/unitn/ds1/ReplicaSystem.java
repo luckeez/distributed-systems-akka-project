@@ -87,8 +87,13 @@ public class ReplicaSystem {
                     case 'l':
                         // TODO coordinator crash (leader election)
                         // Per ora send to random replica, assume replicas not crash so we are sure the replica is active
-                        group.get(rnd.nextInt(group.size())).tell(new Replica.CoordinatorCrashMsg(), ActorRef.noSender());
-                        log.warning("Console coordinator crash");
+                        // PROBLEMA: se estraggo una replica crashata, il messaggio non viene ricevuto
+                        // POSSIBILE SOLUZIONE: inviare il messaggio al coordinatore (?)
+
+                        // !! il gruppo non viene aggiornato quando una replica crasha
+                        int index = rnd.nextInt(group.size());
+                        group.get(index).tell(new Replica.CoordinatorCrashMsg(), ActorRef.noSender());
+                        log.warning("Console coordinator crash (sent to replica{})", index);
                         break;
                     
                     case 'w':
