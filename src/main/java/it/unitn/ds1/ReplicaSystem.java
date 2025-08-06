@@ -5,6 +5,8 @@ import akka.actor.ActorSystem;
 import akka.event.Logging;
 import akka.event.LoggingAdapter;
 
+import java.time.Duration;
+
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -52,6 +54,22 @@ public class ReplicaSystem {
         // Send JoinGroupMsg to client
         client.tell(new Client.JoinGroupMsg(group), ActorRef.noSender());
         log.info("Sent JoinGroupMsg to client1");
+
+
+        // DEV
+        // ActorRef replicaToMonitor = ; // ad esempio peers.get(0)
+        // ActorRef monitor = system.actorOf(ReplicaMonitorActor.props(replicaToMonitor), "replicaMonitor");
+
+        system.scheduler().scheduleWithFixedDelay(
+            Duration.ofSeconds(2), // initial delay
+            Duration.ofSeconds(2), // interval
+            () -> getInfo(group),  // azione da ripetere
+            system.dispatcher()
+        );
+
+
+
+
 
     //     // Send read request
     //     client.tell(new Client.ReadRequestMsg(client), ActorRef.noSender());

@@ -10,6 +10,8 @@ import org.slf4j.MDC;
 import akka.actor.Cancellable;
 import akka.event.Logging;
 import akka.event.LoggingAdapter;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import akka.actor.AbstractActor;
 import akka.actor.Props;
@@ -19,6 +21,7 @@ import it.unitn.ds1.debug.Colors;
 
 public class Replica extends AbstractActor {
     private final LoggingAdapter log = Logging.getLogger(getContext().getSystem(), this);
+    private final Logger schedulerLogger = LoggerFactory.getLogger("getInfo");
     private final int id;
     private int v = 12;
     private List<ActorRef> peers = new ArrayList<>();
@@ -296,7 +299,11 @@ public class Replica extends AbstractActor {
                 crash();
                 return;
             }
-            multicast(this.pendingUpdate, this.peers); // il coordinator deve settare timer quando invia update a tutti?
+            if (msg.proposedV == 6666){
+                multicast(this.pendingUpdate, this.peers, true);
+            } else {
+                multicast(this.pendingUpdate, this.peers, false); // il coordinator deve settare timer quando invia update a tutti?
+            }
 
             // DEV
             // DEBUG CRASH - after sending of update
@@ -353,7 +360,7 @@ public class Replica extends AbstractActor {
                 // }
 
                 WriteOkMsg m = new WriteOkMsg(this.epoch, this.seqNum);
-                multicast(m, this.peers);
+                multicast(m, this.peers, false);
             
                 this.v = this.pendingUpdate.newV;
                 if (this.writeTimeout != null && !writeTimeout.isCancelled()) {
@@ -379,9 +386,11 @@ public class Replica extends AbstractActor {
 
     // DEV
     private void onGetInfoMsg(GetInfoMsg msg){
+        // private static final Logger schedulerLogger = LoggerFactory.getLogger("scheduler");
+
         if (this.currentState == State.CRASHED){
             String str = Colors.RED + this.currentState + Colors.RESET;
-            log.info("REPLICA {} INFO\nValue: {}\nState: {}\n", this.id, this.v, str);
+            schedulerLogger.info("\n" + Colors.YELLOW + " REPLICA {} INFO" + Colors.RESET + "\nValue: {}   -   State: {}\nPeers: [ - ]\nEpoch and SeqNum - \nUpdates - \n", this.id, this.v, str);
         } else {
             // peers List cleaning
             List<String> peersList = this.peers.stream()
@@ -397,7 +406,7 @@ public class Replica extends AbstractActor {
 
             String state = Colors.GREEN + this.currentState + Colors.RESET;
             String str_info = "Coordinator: " + Colors.CYAN + this.coordinator.toString().replaceAll(".*/user/([^#]+).*", "$1") + Colors.RESET + "\nPeers: " + peersList + "\n" + "Epoch and SeqNum " + this.epoch + " - " + this.seqNum + "\nUpdates " + updatesList;
-            log.info(Colors.YELLOW + "\nREPLICA {} INFO" + Colors.RESET + "\nValue: {}\nState: {}\n{}\n", this.id, this.v, state, str_info);
+            schedulerLogger.info("\n" + Colors.YELLOW + " REPLICA {} INFO" + Colors.RESET + "\nValue: {}   -   State: {}   -   {}\n", this.id, this.v, state, str_info);
         }
     }
 
@@ -468,7 +477,7 @@ public class Replica extends AbstractActor {
         //     peer.tell(new HeartbeatMsg(this.epoch, this.seqNum), getSelf());
         // }
         HeartbeatMsg m = new HeartbeatMsg(this.epoch, this.seqNum);
-        multicast(m, this.peers);
+        multicast(m, this.peers, false);
         // }
     }
 
@@ -541,7 +550,7 @@ public class Replica extends AbstractActor {
             // }
 
             ReplicaTimeoutMsg m = new ReplicaTimeoutMsg(msg.replica);
-            multicast(m, this.peers);
+            multicast(m, this.peers, false);
 
         } else {
             peers.remove(msg.replica);
@@ -580,16 +589,26 @@ public class Replica extends AbstractActor {
         catch (InterruptedException e) { e.printStackTrace(); }
     }
 
-    private void multicast(Serializable m, List<ActorRef> multicastGroup){
+    private void multicast(Serializable m, List<ActorRef> multicastGroup, boolean crash){
         CopyOnWriteArrayList<ActorRef> safeMulticastGroup = new CopyOnWriteArrayList<>(multicastGroup);
         Iterator<ActorRef> iterator = safeMulticastGroup.iterator();
+        int count = 0;
         while (iterator.hasNext()){
             ActorRef peer = iterator.next();
+
+            // DEV
+            if (crash && count == 3){
+                log.info(Colors.RED + "Replica {} CRASHES during multicast" + Colors.RESET, this.id);
+                crash();
+                return;
+            }
+
             if (!peer.equals(getSelf())){
 
                 // simulate network delay
                 introduceNetworkDelay();
-                peer.tell(m, getSelf()); 
+                peer.tell(m, getSelf());
+                count++; 
             }
         }
     }
@@ -636,6 +655,8 @@ public class Replica extends AbstractActor {
         ActorRef nextReplica = getNextReplica();
         if (msg.candidateId == this.id || nextReplica == null) {
             selfElection();
+            // DEV
+            log.info("Self Election replica {}", this.id);
         } else {
             //nextReplica.tell(new CoordinatorMsg(msg.candidateId, getSelf()), getSelf());
             tellToReplica(nextReplica, new CoordinatorMsg(msg.candidateId, getSelf()));
@@ -654,11 +675,12 @@ public class Replica extends AbstractActor {
                 log.info("Replica {} synchronized update with seqNum {} and value {}", this.id, update.seqNum, update.newV);
             }
         }
-
+        this.v = msg.updates.getLast().newV; // DEV
         this.coordinator = msg.newCoordinator;
         this.epoch = msg.epoch;
         this.seqNum = msg.seqNum;
         this.isCoordinator = (msg.newCoordinator == getSelf());
+        this.updates =  msg.updates;
         resetHeartbeatTimeout();
     }
 
@@ -674,6 +696,9 @@ public class Replica extends AbstractActor {
             this.isCoordinator = true;
             this.coordinator = getSelf();
             this.epoch = epoch + 1;
+            this.seqNum = 0;
+
+
     
             // Broadcast SynchronizationMsg to all replicas with the list of updates
             // for (ActorRef peer : this.peers) {
@@ -681,7 +706,7 @@ public class Replica extends AbstractActor {
             // }
 
             SynchronizationMsg m = new SynchronizationMsg(this.epoch, this.seqNum, getSelf(), new ArrayList<>(this.updates));
-            multicast(m, this.peers);
+            multicast(m, this.peers, false);
 
             this.heartbeatTimeout = getContext().system().scheduler().scheduleWithFixedDelay(
                     Duration.ZERO,

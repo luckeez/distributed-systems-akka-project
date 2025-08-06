@@ -52,9 +52,18 @@
         </rollingPolicy>
     </appender>
  -->
-
+    <!-- Client Appender -->
     <appender name="CLIENT_FILE" class="ch.qos.logback.core.FileAppender">
         <file>logs/client.ans</file>
+        <append>false</append>
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss} %-5level - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- GetInfo Appender-->
+    <appender name="GETINFO_FILE" class="ch.qos.logback.core.FileAppender">
+        <file>logs/getinfo.ans</file>
         <append>false</append>
         <encoder>
             <pattern>%d{yyyy-MM-dd HH:mm:ss} %-5level - %msg%n</pattern>
@@ -87,6 +96,10 @@
 
     <logger name="it.unitn.ds1.Client" level="all" additivity="false">
         <appender-ref ref="CLIENT_FILE" />
+    </logger>
+
+    <logger name="getInfo" level="all" additivity="false">
+        <appender-ref ref="GETINFO_FILE" />
     </logger>
 
     <!-- <logger name="it.unitn.ds1.Replica" level="all" additivity="false">
