@@ -37,8 +37,8 @@ public class Replica extends AbstractActor {
     private Cancellable writeTimeout;
     private Cancellable heartbeatTimeout;
     private Cancellable crashTimeout;
-    private final int heartbeatInterval = 1; // seconds
-    private final int heartbeatTimeoutDuration = 3; // seconds
+    private final int heartbeatInterval = 2; // seconds
+    private final int heartbeatTimeoutDuration = 5; // seconds
     private HashMap<ActorRef, Cancellable> replicaTimeouts = new HashMap<>();
     private List<UpdateMsg> updates = new ArrayList<>();
     //DEV
@@ -277,7 +277,7 @@ public class Replica extends AbstractActor {
             this.seqNum += 1;
             this.pendingUpdate = new UpdateMsg(this.epoch, this.seqNum, msg.proposedV);
             this.ackCount = 1;
-            this.updates.add(pendingUpdate);
+            // this.updates.add(pendingUpdate); // DEV
 
             // IF crash while writing
             this.writeTimeout = getContext().system().scheduler().scheduleOnce(
@@ -328,7 +328,7 @@ public class Replica extends AbstractActor {
         this.epoch = Math.max(this.epoch, msg.epoch);
         this.seqNum = Math.max(this.seqNum, msg.seqNum);
         this.pendingUpdate = msg;
-        this.updates.add(msg);
+        // this.updates.add(msg); // DEV
 
         // DEV
         // DEBUG CRASH - after receiving of update
@@ -363,6 +363,8 @@ public class Replica extends AbstractActor {
                 multicast(m, this.peers, false);
             
                 this.v = this.pendingUpdate.newV;
+                this.updates.add(this.pendingUpdate); // DEV
+                this.pendingUpdate = null; // reset pending update // DEV
                 if (this.writeTimeout != null && !writeTimeout.isCancelled()) {
                     this.writeTimeout.cancel();
                 }
@@ -374,6 +376,8 @@ public class Replica extends AbstractActor {
     private void onWriteOkMsg(WriteOkMsg msg) {
         if (msg.epoch == this.epoch && msg.seqNum == this.seqNum) {
             this.v = this.pendingUpdate.newV;
+            this.updates.add(this.pendingUpdate); // DEV
+            this.pendingUpdate = null; // reset pending update // DEV
             if (this.writeTimeout != null && !writeTimeout.isCancelled()) {
                  this.writeTimeout.cancel();
             }
@@ -669,18 +673,27 @@ public class Replica extends AbstractActor {
         // Synchronize updates
         // update messages before storing new info
         for (UpdateMsg update : msg.updates) {
-            if (update.seqNum > this.seqNum) {
+            // DEV
+            if (!this.updates.contains(update)) {
+                this.updates.add(update);
                 this.seqNum = update.seqNum;
                 this.v = update.newV;
                 log.info("Replica {} synchronized update with seqNum {} and value {}", this.id, update.seqNum, update.newV);
             }
+
+
+            // if (update.seqNum > this.seqNum) {
+            //     this.seqNum = update.seqNum;
+            //     this.v = update.newV;
+            //     log.info("Replica {} synchronized update with seqNum {} and value {}", this.id, update.seqNum, update.newV);
+            // }
         }
-        this.v = msg.updates.getLast().newV; // DEV
+        // this.v = msg.updates.getLast().newV; // DEV
         this.coordinator = msg.newCoordinator;
         this.epoch = msg.epoch;
         this.seqNum = msg.seqNum;
         this.isCoordinator = (msg.newCoordinator == getSelf());
-        this.updates =  msg.updates;
+        // this.updates =  msg.updates; provaaaaa
         resetHeartbeatTimeout();
     }
 
@@ -698,7 +711,13 @@ public class Replica extends AbstractActor {
             this.epoch = epoch + 1;
             this.seqNum = 0;
 
-
+            // Check if the new coordinator has a pending update (this means that the old coordinator crashed before sending the write oks)
+            // The new coordinator resends the pending update to all replicas waiting for ACKs and then sends WriteOks
+            if (this.pendingUpdate != null) {
+                this.pendingUpdate = new UpdateMsg(this.epoch, this.seqNum, this.pendingUpdate.newV); // the Update is recreated with the new epoch and seqNum
+                multicast(this.pendingUpdate, this.peers, false);
+                log.info("New Coordinator {} broadcasted update message with value {}", this.id, this.pendingUpdate.newV);
+            }
     
             // Broadcast SynchronizationMsg to all replicas with the list of updates
             // for (ActorRef peer : this.peers) {

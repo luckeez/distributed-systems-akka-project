@@ -1,4 +1,5 @@
 #!/bin/bash
+# to use: watch "bash getinfo.sh"
 
 tail -n 90 logs/getinfo.ans | gawk -v RS= -v ORS="\n\n" '
 {
