@@ -106,7 +106,8 @@ public class Replica extends AbstractActor {
     public static class UpdateMsg implements Serializable {
         public final int epoch;
         public final int seqNum;
-        public final int newV;
+        // public final int newV;
+        public int newV; // DEV
 
         public UpdateMsg(int epoch, int seqNum, int newV) {
             this.epoch = epoch;
@@ -301,6 +302,7 @@ public class Replica extends AbstractActor {
             }
             if (msg.proposedV == 6666){
                 multicast(this.pendingUpdate, this.peers, true);
+                return;
             } else {
                 multicast(this.pendingUpdate, this.peers, false); // il coordinator deve settare timer quando invia update a tutti?
             }
@@ -325,17 +327,17 @@ public class Replica extends AbstractActor {
     }
 
     private void onUpdateMsg(UpdateMsg msg) {
-        this.epoch = Math.max(this.epoch, msg.epoch);
-        this.seqNum = Math.max(this.seqNum, msg.seqNum);
+        // this.epoch = Math.max(this.epoch, msg.epoch);
+        // this.seqNum = Math.max(this.seqNum, msg.seqNum);
         this.pendingUpdate = msg;
         // this.updates.add(msg); // DEV
 
         // DEV
         // DEBUG CRASH - after receiving of update
-        if (msg.newV == 7777){
-            crash();
-            return;
-        }
+        // if (msg.newV == 7777){
+        //     crash();
+        //     return;
+        // }
 
         //getSender().tell(new AckMsg(msg.epoch, msg.seqNum), getSelf());
         tellToReplica(getSender(), new AckMsg(msg.epoch, msg.seqNum));
@@ -360,8 +362,15 @@ public class Replica extends AbstractActor {
                 // }
 
                 WriteOkMsg m = new WriteOkMsg(this.epoch, this.seqNum);
-                multicast(m, this.peers, false);
-            
+
+                // DEV
+                if (this.pendingUpdate.newV == 7777){
+                    multicast(m, this.peers, true);
+                    return;
+                } else {
+                    multicast(m, this.peers, false);
+                }
+
                 this.v = this.pendingUpdate.newV;
                 this.updates.add(this.pendingUpdate); // DEV
                 this.pendingUpdate = null; // reset pending update // DEV
@@ -374,6 +383,8 @@ public class Replica extends AbstractActor {
     }
 
     private void onWriteOkMsg(WriteOkMsg msg) {
+        this.epoch = Math.max(this.epoch, msg.epoch);
+        this.seqNum = Math.max(this.seqNum, msg.seqNum);
         if (msg.epoch == this.epoch && msg.seqNum == this.seqNum) {
             this.v = this.pendingUpdate.newV;
             this.updates.add(this.pendingUpdate); // DEV
@@ -518,7 +529,8 @@ public class Replica extends AbstractActor {
             } catch (InterruptedException e) {
                 e.printStackTrace();
             }
-            log.warning(Colors.CYAN + "Replica {} starts a LEADER ELECTION" + Colors.RESET, this.id);
+            String str_info = "(" + this.epoch + " - " + this.seqNum + ")";
+            log.warning(Colors.CYAN + "Replica {} {} starts a LEADER ELECTION" + Colors.RESET, this.id, str_info);
 
             ActorRef nextReplica = getNextReplica();
             if (nextReplica != null) {
@@ -635,7 +647,8 @@ public class Replica extends AbstractActor {
     //------------------------- Leader election system -------------------------\\
 
     private void onLeaderElectionMsg(LeaderElectionMsg msg) {
-        log.info(Colors.YELLOW + "Replica {} received ELECTION message from {} with candidateId {}" + Colors.RESET, this.id, msg.sender.path().name(), msg.candidateId);
+        String str_info = "(" + this.epoch + " - " + this.seqNum + ")";
+        log.info(Colors.YELLOW + "Replica {} {} received ELECTION message from {} with candidateId {}" + Colors.RESET, this.id, str_info, msg.sender.path().name(), msg.candidateId);
 
         // DEV
         // DEBUG CRASH - during election
