@@ -183,9 +183,9 @@ public class Client extends AbstractActor {
         if (msg.proposedV == 7777){
             msg.proposedV = 7000;
         }
-        // if (msg.proposedV == 6666){
-        //     msg.proposedV = 6000;
-        // }
+        if (msg.proposedV == 6666){
+            msg.proposedV = 6000;
+        }
         // PROBLEMA: quando coordinator crasha meentre client fa una write, non deve rimuovere la replica a cui ha inviato la request.
         // remove from the list the crashed replica and resend a write request with the same proposed value
         this.replicas.remove(msg.replica);
