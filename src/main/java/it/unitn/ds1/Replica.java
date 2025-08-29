@@ -523,7 +523,7 @@ public class Replica extends AbstractActor {
 
         log.warning(Colors.CYAN + "SONO {} e la mia lista di repliche è {}" + Colors.RESET, this.id, peersList);
 
-        if (peers.get(0) == getSelf()) {
+        if (peers.get(0) == getSelf()) { // TODO se coord e replica crash, no leader election
             try {
                 Thread.sleep(1000);
             } catch (InterruptedException e) {
@@ -536,7 +536,6 @@ public class Replica extends AbstractActor {
             if (nextReplica != null) {
                 ArrayList<ActorRef> notifiedReplicas = new ArrayList<>();
                 notifiedReplicas.add(getSelf());
-                //nextReplica.tell(new LeaderElectionMsg(this.epoch, this.seqNum, getSelf(), this.id, notifiedReplicas), getSelf());
                 tellToReplica(nextReplica, new LeaderElectionMsg(this.epoch, this.seqNum, getSelf(), this.id));//, notifiedReplicas));
             } else {
                 // If this is the only replica left, it becomes the coordinator
@@ -570,10 +569,6 @@ public class Replica extends AbstractActor {
         if (getSelf() == this.coordinator) {
             log.info("Coordinator {} detected a timeout for replica {}, assuming it CRASHED", this.id, msg.replica.path().name());
             peers.remove(msg.replica);
-
-            // for (ActorRef peer: this.peers){
-            //     peer.tell(new ReplicaTimeoutMsg(msg.replica), getSelf());
-            // }
 
             ReplicaTimeoutMsg m = new ReplicaTimeoutMsg(msg.replica);
             multicast(m, this.peers, false);
