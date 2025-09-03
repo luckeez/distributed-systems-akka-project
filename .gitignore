@@ -4,3 +4,45 @@
 /logs/protocol.ans
 /logs/*
 /logs/getinfo.ans
+# Gradle build output
+/build/
+*/build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# Local Gradle settings
+.gradle/
+.gradle-cache/
+.gradle-local/
+
+# Logs
+*.log
+
+# IDE-specific files
+# IntelliJ / Android Studio
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# Eclipse
+.project
+.classpath
+.settings/
+bin/
+
+# VS Code
+.vscode/
+
+# OS-specific
+.DS_Store
+Thumbs.db
+
+# Java / Kotlin
+*.class
+*.jar
+*.war
+*.ear
+
+# Generated files
+out/
+
