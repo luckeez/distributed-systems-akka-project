@@ -3,6 +3,7 @@ package it.unitn.ds1;
 import akka.actor.ActorRef;
 import akka.actor.AbstractActor;
 import akka.actor.Cancellable;
+import akka.actor.Props;
 import akka.event.Logging;
 import akka.event.LoggingAdapter;
 import it.unitn.ds1.debug.Colors;
@@ -25,6 +26,7 @@ public class Replica extends AbstractActor {
   private int currentSequenceNumber = 0;
   private boolean isCoordinator = false;
   private int coordinatorId = 0;
+  private final int quorumSize;
   private boolean crashed = false;
 
   private List<ActorRef> replicas;
@@ -50,9 +52,15 @@ public class Replica extends AbstractActor {
     }
   }
 
-  public Replica(int replicaId) {
+  public Replica(int replicaId, int quorumSize) {
     this.replicaId = replicaId;
+    this.quorumSize = quorumSize;
     this.isCoordinator = (replicaId == 0);
+    this.coordinatorId = 0;
+  }
+
+  static public Props props(int id, int quorumSize) {
+    return Props.create(Replica.class, () -> new Replica(id, quorumSize));
   }
 
   @Override
@@ -108,7 +116,7 @@ public class Replica extends AbstractActor {
   // HELPERS
 
   private boolean shouldCrash(Messages.CrashPoint point) {
-    if (crashed || crashPoint != point) {
+    if (crashed || crashPoint != point || replicas.size() <= quorumSize) {
       return false;
     }
     int currentCount = operationCounts.get(point);
@@ -119,9 +127,9 @@ public class Replica extends AbstractActor {
           "Replica " + replicaId + " crashing at " + point + " after " + (currentCount + 1) + " operations");
       crashed = true;
       cancelTimeouts();
+      crashed();
       return true;
     }
-    crashed();
 
     return false;
   }
@@ -420,7 +428,7 @@ public class Replica extends AbstractActor {
   }
 
   private void handleHeartBeatAck(Messages.HeartBeatAck msg) {
-    if (crashed)
+    if (crashed || !isCoordinator)
       return;
     resetReplicaTimeout(msg.replicaId);
   }
@@ -447,12 +455,11 @@ public class Replica extends AbstractActor {
     log.warning(Colors.RED, "Coordinator " + replicaId + " detected failure of replica " + msg.replicaId,
         Colors.RESET);
 
+    // remove the crashed replica from the group
     replicas.removeIf(r -> r.path().name().equals("replica" + msg.replicaId));
-    for (ActorRef replica : replicas) {
-      if (replica.equals(getSelf()))
-        continue;
-      replica.tell(new Messages.DetectedReplicaFailure(msg.replicaId), getSelf());
-    }
+
+    // notify the detected failure to other replicas
+    broadcast(new Messages.DetectedReplicaFailure(msg.replicaId));
   }
 
   private void handleTimeout(Messages.Timeout msg) {
@@ -474,6 +481,10 @@ public class Replica extends AbstractActor {
     log.warning(Colors.RED,
         "Replica " + replicaId + " received ReplicaFailure message from coordinator " + msg.failedReplicaId,
         Colors.RESET);
+
+    // the replica received the failure notication of another replica from the
+    // coordinator
+    // and proceed to remove the replica from the group
     replicas.removeIf(r -> r.path().name().equals("replica" + msg.failedReplicaId));
   }
 
@@ -481,6 +492,7 @@ public class Replica extends AbstractActor {
     if (crashed)
       return;
     if (shouldCrash(Messages.CrashPoint.DURING_ELECTION))
+      // TODO: think how to handle crashes during election
       return;
     log.info("Replica " + replicaId + " received election message from " + msg.initiatorId);
 
