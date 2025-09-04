@@ -29,7 +29,7 @@ public class Replica extends AbstractActor {
   private final int quorumSize;
   private boolean crashed = false;
 
-  private List<ActorRef> replicas;
+  private List<ActorRef> replicas = new ArrayList<>();
   private Map<Messages.UpdateId, Integer> pendingAcks = new HashMap<>();
   private Map<Messages.UpdateId, Messages.Update> pendingUpdates = new HashMap<>();
   private List<Messages.Update> updateHistory = new ArrayList<>();
@@ -110,6 +110,7 @@ public class Replica extends AbstractActor {
         .match(Messages.Synchronization.class, this::handleSynchronization)
         .match(Messages.Crash.class, this::handleCrash)
         .match(Messages.SetCrashPoint.class, this::handleSetCrashPoint)
+        .match(Messages.GetState.class, this::handleGetState)
         .build();
   }
 
@@ -214,11 +215,14 @@ public class Replica extends AbstractActor {
       updateTimeout.cancel();
     }
 
-    for (Entry<Integer, Cancellable> entry : replicaTimeouts.entrySet()) {
-      if (entry.getValue() != null) {
-        entry.getValue().cancel();
+    if (replicaTimeouts != null) {
+      for (Entry<Integer, Cancellable> entry : replicaTimeouts.entrySet()) {
+        if (entry.getValue() != null) {
+          entry.getValue().cancel();
+        }
       }
     }
+
   }
 
   private void startElection() {
@@ -287,7 +291,8 @@ public class Replica extends AbstractActor {
     if (crashed)
       return;
     this.replicas = new ArrayList<>(msg.replicas);
-    log.info("Replica " + replicaId + " initialized with " + replicas.size() + " replicas");
+    log.info(
+        Colors.GREEN + "Replica " + replicaId + " initialized with " + replicas.size() + " replicas" + Colors.RESET);
 
     for (int i = 0; i < replicas.size(); i++) {
       lastKnownUpdate.put(i, new Messages.UpdateId(0, -1));
@@ -297,7 +302,7 @@ public class Replica extends AbstractActor {
   private void handleReadRequest(Messages.ReadRequest msg) {
     if (crashed)
       return;
-    log.info("Client Read Request to " + replicaId);
+    log.info("Replica " + replicaId + " received read request from " + getSender().path().name());
     introduceNetworkDelay();
     getSender().tell(new Messages.ReadResponse(currentValue), getSelf());
   }
@@ -564,5 +569,16 @@ public class Replica extends AbstractActor {
     this.crashAfterOperations = msg.afterOperations;
     log.info(
         "Replica " + replicaId + " set to crash at " + crashPoint + " after " + crashAfterOperations + " operations");
+  }
+
+  private void handleGetState(Messages.GetState msg) {
+    String status = String.format(
+        "Replica %d | Coordinator: %b | Epoch: %d | Value: %d | LastUpdateId: %s | ElectionInProgress: %b | Crashed: %b",
+        replicaId, isCoordinator, currentEpoch, currentValue,
+        updateHistory.isEmpty() ? new Messages.UpdateId(0, -1).toString()
+            : updateHistory.get(updateHistory.size() - 1).updateId.toString(),
+        electionInProgress, crashed);
+    log.info(status);
+    // log.info(Colors.BLUE, status, Colors.RESET);
   }
 }

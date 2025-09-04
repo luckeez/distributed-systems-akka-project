@@ -207,4 +207,37 @@ public class Messages {
       this.afterOperations = afterOperations;
     }
   }
+
+  public static class GetState implements Serializable {
+  }
+
+  public static class StateResponse implements Serializable {
+
+    public final int replicaId;
+    public final boolean isCoordinator;
+    public final int currentEpoch;
+    public final int currentValue;
+    public final UpdateId lastUpdateId;
+    public final boolean electionInProgress;
+    public final boolean isCrashed;
+
+    public StateResponse(int replicaId, boolean isCoordinator, int currentEpoch, int currentValue,
+        UpdateId lastUpdateId, boolean electionInProgress, boolean isCrashed) {
+      this.replicaId = replicaId;
+      this.isCoordinator = isCoordinator;
+      this.currentEpoch = currentEpoch;
+      this.currentValue = currentValue;
+      this.lastUpdateId = lastUpdateId;
+      this.electionInProgress = electionInProgress;
+      this.isCrashed = isCrashed;
+    }
+
+    @Override
+    public String toString() {
+      return String.format(
+          "Replica %d | Coordinator: %b | Epoch: %d | Value: %d | LastUpdateId: %s | ElectionInProgress: %b | Crashed: %b",
+          replicaId, isCoordinator, currentEpoch, currentValue,
+          lastUpdateId != null ? lastUpdateId.toString() : "null", electionInProgress, isCrashed);
+    }
+  }
 }

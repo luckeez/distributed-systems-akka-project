@@ -2,30 +2,30 @@ package it.unitn.ds1;
 
 import akka.actor.ActorRef;
 import akka.actor.ActorSystem;
-import akka.event.Logging;
-import akka.event.LoggingAdapter;
 import it.unitn.ds1.debug.Colors;
 
 import java.util.*;
 
 public class QuorumSystem {
-  private static ActorSystem system = ActorSystem.create("QuorumSystem");
-  private static final LoggingAdapter log = Logging.getLogger(system, QuorumSystem.class);
-  private static List<ActorRef> clients;
-  private static List<ActorRef> replicas;
+  private static ActorSystem system;
+  private static List<ActorRef> clients = new ArrayList<>();
+  private static List<ActorRef> replicas = new ArrayList<>();
   private static Scanner scanner;
   private static final int N = 10;
 
   private static void initializeSystem() {
     replicas = new ArrayList<>();
-    int quorumSize = N / 2 + 1;
+    int quorumSize = (N / 2) + 1;
     for (int i = 0; i < N; i++) {
-      replicas.add(system.actorOf(Replica.props(i, quorumSize)));
+      replicas.add(system.actorOf(Replica.props(i, quorumSize), "Replica" + i));
     }
 
-    clients.add(system.actorOf(Client.props(0, replicas)));
-    log.info(Colors.BLUE, "System has been initialized!", Colors.RESET);
+    for (ActorRef replica : replicas) {
+      replica.tell(new Messages.Initialize(replicas), ActorRef.noSender());
+    }
 
+    clients.add(system.actorOf(Client.props(0, replicas), "Client0"));
+    System.out.println(Colors.BLUE + "System has been initialize!" + Colors.RESET);
   }
 
   private static void printHelp() {
@@ -55,39 +55,256 @@ public class QuorumSystem {
   }
 
   private static void printStatus() {
-
+    System.out.println(Colors.BLUE + "\n=== Status ===" + Colors.RESET);
+    for (ActorRef replica : replicas) {
+      replica.tell(new Messages.GetState(), ActorRef.noSender());
+    }
   }
 
   private static void handleReadCommand(String[] parts) {
+    if (parts.length != 2) {
+      System.out.println("Usage: read <clientId>");
+      System.out.println("Example: read 0");
+      return;
+    }
 
+    int clientId = Integer.parseInt(parts[1]);
+
+    if (clientId < 0 || clientId >= clients.size()) {
+      System.out.println("Invalid client ID. Use 0-" + (clients.size() - 1));
+      return;
+    }
+
+    clients.get(clientId).tell(new Messages.ReadRequest(), ActorRef.noSender());
   }
 
   private static void handleWriteCommand(String[] parts) {
+    if (parts.length != 3) {
+      System.out.println("Usage: write <clientId> <value>");
+      System.out.println("Example: write 0 120");
+      return;
+    }
+
+    int clientId = Integer.parseInt(parts[1]);
+    int value = Integer.parseInt(parts[2]);
+    if (clientId >= clients.size()) {
+      System.out.println("Invalid client ID. Use 0-" + (clients.size() - 1));
+      return;
+    }
+
+    clients.get(clientId).tell(new Messages.WriteRequest(value), ActorRef.noSender());
 
   }
 
   private static void handleCrashCommand(String[] parts) {
+    if (parts.length != 2) {
+      System.out.println("Usage: crash <replicaId>");
+      System.out.println("Example: crash 0");
+      return;
+    }
 
+    int replicaId = Integer.parseInt(parts[1]);
+
+    if (replicaId < 0 || replicaId >= replicas.size()) {
+      System.out.println("Invalid replica ID. Use 0-" + (replicas.size() - 1));
+      return;
+    }
+
+    replicas.get(replicaId).tell(new Messages.Crash(), ActorRef.noSender());
   }
 
   private static void handleSetCrashCommand(String[] parts) {
+    if (parts.length != 4) {
+      System.out.println("Usage: setcrash <replicaId> <crashPoint> <afterOperations>");
+      System.out.println("Example: setcrash 0 AFTER_SENDING_UPDATE 2");
+      return;
+    }
+
+    int replicaId = Integer.parseInt(parts[1]);
+    String crashPointStr = parts[2].toUpperCase();
+    int afterOperations = Integer.parseInt(parts[3]);
+
+    if (replicaId < 0 || replicaId >= replicas.size()) {
+      System.out.println("Invalid replica ID. Use 0-" + (replicas.size() - 1));
+      return;
+    }
+
+    try {
+      Messages.CrashPoint crashPoint = Messages.CrashPoint.valueOf(crashPointStr);
+      System.out.println("Setting crash point for replica " + replicaId + ": " +
+          crashPoint + " after " + afterOperations + " operations");
+      replicas.get(replicaId).tell(new Messages.SetCrashPoint(crashPoint, afterOperations), ActorRef.noSender());
+    } catch (IllegalArgumentException e) {
+      System.out.println("Invalid crash point. Type 'help' to see available crash points.");
+    }
 
   }
 
   private static void handleScenarioCommand(String[] parts) {
+    if (parts.length != 2) {
+      System.out.println("Usage: scenario <scenarioName>");
+      System.out.println("Available scenarios: basic, coordinator, election, recovery, stress");
+      return;
+    }
 
+    String scenarioName = parts[1].toLowerCase();
+    System.out.println("Running scenario: " + scenarioName);
+
+    try {
+      switch (scenarioName) {
+        case "basic":
+          runBasicScenario();
+          break;
+        case "coordinator":
+          runCoordinatorCrashScenario();
+          break;
+        case "election":
+          runElectionScenario();
+          break;
+        case "recovery":
+          runRecoveryScenario();
+          break;
+        case "stress":
+          runStressScenario();
+          break;
+        default:
+          System.out.println("Unknown scenario: " + scenarioName);
+          break;
+      }
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      System.out.println("Scenario interrupted");
+    }
+  }
+
+  private static void runBasicScenario() throws InterruptedException {
+    System.out.println("=== Basic Scenario: Normal Operations ===");
+
+    clients.get(0).tell(new Messages.WriteRequest(10), ActorRef.noSender());
+    Thread.sleep(1000);
+
+    replicas.get(0).tell(new Messages.ReadRequest(), clients.get(1));
+    Thread.sleep(500);
+
+    clients.get(1).tell(new Messages.WriteRequest(20), ActorRef.noSender());
+    Thread.sleep(1000);
+
+    replicas.get(2).tell(new Messages.ReadRequest(), clients.get(0));
+    Thread.sleep(500);
+
+    System.out.println("Basic scenario completed");
+  }
+
+  private static void runCoordinatorCrashScenario() throws InterruptedException {
+    System.out.println("=== Coordinator Crash Scenario ===");
+
+    // Set coordinator to crash after sending first update
+    replicas.get(0).tell(new Messages.SetCrashPoint(Messages.CrashPoint.AFTER_SENDING_UPDATE, 1), ActorRef.noSender());
+    Thread.sleep(500);
+
+    System.out.println("Sending write request that will trigger coordinator crash...");
+    clients.get(0).tell(new Messages.WriteRequest(100), ActorRef.noSender());
+    Thread.sleep(2000);
+
+    System.out.println("Sending another write request to test election...");
+    clients.get(1).tell(new Messages.WriteRequest(200), ActorRef.noSender());
+    Thread.sleep(2000);
+
+    System.out.println("Coordinator crash scenario completed");
+  }
+
+  private static void runElectionScenario() throws InterruptedException {
+    System.out.println("=== Election Scenario: Multiple Crashes ===");
+
+    // Set multiple replicas to crash at different points
+    replicas.get(0).tell(new Messages.SetCrashPoint(Messages.CrashPoint.BEFORE_SENDING_WRITEOK, 1),
+        ActorRef.noSender());
+    replicas.get(1).tell(new Messages.SetCrashPoint(Messages.CrashPoint.DURING_ELECTION, 1), ActorRef.noSender());
+    Thread.sleep(500);
+
+    clients.get(0).tell(new Messages.WriteRequest(300), ActorRef.noSender());
+    Thread.sleep(3000);
+
+    clients.get(1).tell(new Messages.WriteRequest(400), ActorRef.noSender());
+    Thread.sleep(2000);
+
+    System.out.println("Election scenario completed");
+  }
+
+  private static void runRecoveryScenario() throws InterruptedException {
+    System.out.println("=== Recovery Scenario: Synchronization Test ===");
+
+    // Normal operation first
+    clients.get(0).tell(new Messages.WriteRequest(500), ActorRef.noSender());
+    Thread.sleep(1000);
+
+    // Crash coordinator after some updates
+    replicas.get(0).tell(new Messages.Crash(), ActorRef.noSender());
+    Thread.sleep(1000);
+
+    // Continue operations with new coordinator
+    clients.get(1).tell(new Messages.WriteRequest(600), ActorRef.noSender());
+    Thread.sleep(2000);
+
+    clients.get(2).tell(new Messages.WriteRequest(700), ActorRef.noSender());
+    Thread.sleep(1000);
+
+    // Read from different replicas to check consistency
+    for (int i = 1; i < replicas.size(); i++) {
+      replicas.get(i).tell(new Messages.ReadRequest(), clients.get(0));
+      Thread.sleep(300);
+    }
+
+    System.out.println("Recovery scenario completed");
+  }
+
+  private static void runStressScenario() throws InterruptedException {
+    System.out.println("=== Stress Scenario: Multiple Concurrent Operations ===");
+
+    // Rapid fire writes from multiple clients
+    for (int i = 0; i < 10; i++) {
+      int clientId = i % clients.size();
+      int value = 1000 + i;
+      clients.get(clientId).tell(new Messages.WriteRequest(value), ActorRef.noSender());
+      Thread.sleep(200);
+
+      // Crash coordinator halfway through
+      if (i == 5) {
+        replicas.get(0).tell(new Messages.Crash(), ActorRef.noSender());
+        System.out.println("Coordinator crashed during stress test!");
+      }
+    }
+
+    Thread.sleep(3000);
+    System.out.println("Stress scenario completed");
   }
 
   private static void resetSystem() {
+    System.out.println("Resetting system...");
 
+    // Terminate current system
+    system.terminate();
+
+    try {
+      Thread.sleep(2000); // Wait for clean shutdown
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+    }
+
+    // Create new system
+    system = ActorSystem.create("QuorumSystem");
+    initializeSystem();
+
+    System.out.println("System reset completed");
   }
 
   public static void main(String[] args) {
+    system = ActorSystem.create("QuorumSystem");
     scanner = new Scanner(System.in);
 
     System.out.println(Colors.PURPLE + "=== Quorum-based Total Order Broadcast Simulator ===" + Colors.RESET);
 
-    log.info("Initializing the system...");
+    System.out.println("Initializing the system...");
 
     initializeSystem();
 
@@ -130,7 +347,7 @@ public class QuorumSystem {
             break;
           case "quit":
           case "exit":
-            log.info("Shutting down the system...");
+            System.out.println(Colors.YELLOW + "Shutting down the system..." + Colors.RESET);
             system.terminate();
             scanner.close();
             System.exit(0);
