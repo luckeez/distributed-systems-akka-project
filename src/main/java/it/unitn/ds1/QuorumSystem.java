@@ -231,11 +231,8 @@ public class QuorumSystem {
 
     System.out.println("Sending write request that will trigger crash before sending updates...");
     clients.get(0).tell(new Messages.WriteRequest(150), ActorRef.noSender());
-    Thread.sleep(5000);
+    Thread.sleep(7000);
 
-    System.out.println("Sending another write request to test recovery...");
-    clients.get(0).tell(new Messages.WriteRequest(250), ActorRef.noSender());
-    Thread.sleep(2000);
     printStatus();
     System.out.println("Crash before sending update scenario completed");
   }

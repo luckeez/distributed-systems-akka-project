@@ -239,6 +239,15 @@ public class Replica extends AbstractActor {
 
   }
 
+  private boolean alreadyServed(Messages.RequestInfo requestInfo) {
+    for (Messages.Update update : updateHistory) {
+      if (update.requestInfo != null && update.requestInfo.equals(requestInfo)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   private void startElection() {
     if (electionInProgress)
       return;
@@ -261,6 +270,12 @@ public class Replica extends AbstractActor {
     currentEpoch++;
     currentSequenceNumber = 0;
 
+    try {
+      Thread.sleep(500);
+    } catch (Exception e) {
+      e.printStackTrace();
+    }
+
     // missed updates for synchronization
     broadcast(new Messages.Synchronization(replicaId, updateHistory), null);
     scheduleHeartBeat();
@@ -270,7 +285,7 @@ public class Replica extends AbstractActor {
       log.info("Coordinator " + replicaId + " re-broadcasting pending update " + update.updateId +
           " value " + update.value);
       Messages.Update newUpdate = new Messages.Update(new Messages.UpdateId(currentEpoch, currentSequenceNumber),
-          update.value);
+          update.value, update.requestInfo);
       pendingAcks.put(newUpdate.updateId, 0);
       pendingUpdates.put(newUpdate.updateId, newUpdate);
       broadcast(newUpdate, null);
@@ -373,11 +388,17 @@ public class Replica extends AbstractActor {
       return;
 
     if (isCoordinator) {
+      if (alreadyServed(msg.requestInfo)) {
+        introduceNetworkDelay();
+        msg.requestInfo.client.tell(new Messages.WriteResponse(true, msg.requestInfo), getSelf());
+        log.info("Coordinator " + replicaId + " already served request with " + msg.requestInfo.toString());
+      }
+
       if (shouldCrash(Messages.CrashPoint.BEFORE_SENDING_UPDATE))
         return;
 
       Messages.UpdateId updateId = new Messages.UpdateId(currentEpoch, currentSequenceNumber);
-      Messages.Update update = new Messages.Update(updateId, msg.value);
+      Messages.Update update = new Messages.Update(updateId, msg.value, msg.requestInfo);
 
       log.info(Colors.CYAN + "Coordinator " + replicaId + " initiating update " + updateId + " value " + update.value +
           Colors.RESET);
@@ -400,7 +421,7 @@ public class Replica extends AbstractActor {
           getSelf());
     } else {
       introduceNetworkDelay();
-      forwardToCoordinator(new Messages.WriteRequest(msg.value, getSender()));
+      forwardToCoordinator(new Messages.WriteRequest(msg.value, msg.requestInfo));
     }
   }
 
@@ -437,13 +458,17 @@ public class Replica extends AbstractActor {
         if (shouldCrash(Messages.CrashPoint.BEFORE_SENDING_WRITEOK))
           return;
 
-        applyUpdate(pendingUpdates.get(msg.updateId));
+        Messages.Update update = pendingUpdates.get(msg.updateId);
+        applyUpdate(update);
         Messages.WriteOk writeOk = new Messages.WriteOk(msg.updateId);
 
         broadcast(writeOk, null);
 
         if (shouldCrash(Messages.CrashPoint.AFTER_SENDING_WRITEOK))
           return;
+
+        // notify the client that the write was successful
+        update.requestInfo.client.tell(new Messages.WriteResponse(true, update.requestInfo), getSelf());
 
         // clean up
         pendingAcks.remove(msg.updateId);

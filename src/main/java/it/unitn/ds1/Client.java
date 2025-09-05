@@ -2,17 +2,25 @@ package it.unitn.ds1;
 
 import akka.actor.AbstractActor;
 import akka.actor.ActorRef;
+import akka.actor.Cancellable;
 import akka.actor.Props;
 import akka.event.Logging;
 import akka.event.LoggingAdapter;
+import scala.concurrent.duration.Duration;
 
+import java.io.Serializable;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.TimeUnit;
 
 public class Client extends AbstractActor {
   private final LoggingAdapter log = Logging.getLogger(getContext().getSystem(), this);
   private final int clientId;
   private final List<ActorRef> replicas;
+  private int requestCounter = 0;
+  private Map<Messages.RequestInfo, Cancellable> pendingRequestsTimeouts = new HashMap<>();
 
   public Client(int clientId, List<ActorRef> replicas) {
     this.clientId = clientId;
@@ -46,6 +54,26 @@ public class Client extends AbstractActor {
     }
   }
 
+  private void scheduleRequestTimeout(Messages.WriteRequest msg) {
+
+    ActorRef replica = replicas.get(ThreadLocalRandom.current().nextInt(replicas.size()));
+    Cancellable timeout = getContext().system().scheduler().scheduleOnce(
+        Duration.create(5, TimeUnit.SECONDS),
+        replica,
+        msg,
+        getContext().system().dispatcher(),
+        getSelf());
+    pendingRequestsTimeouts.put(msg.requestInfo, timeout);
+
+  }
+
+  private void cancelRequestTimeout(Messages.RequestInfo requestInfo) {
+    Cancellable timeout = pendingRequestsTimeouts.remove(requestInfo);
+    if (timeout != null) {
+      timeout.cancel();
+    }
+  }
+
   private void onReadRequest(Messages.ReadRequest msg) {
     ActorRef replica = replicas.get(ThreadLocalRandom.current().nextInt(replicas.size()));
     log.info("Client " + clientId + " read request to " + replica.path().name());
@@ -57,7 +85,11 @@ public class Client extends AbstractActor {
     ActorRef replica = replicas.get(ThreadLocalRandom.current().nextInt(replicas.size()));
     log.info("Client " + clientId + " write request with value " + msg.value + " to " + replica.path().name());
     introduceNetworkDelay();
-    replica.tell(msg, getSelf());
+    Messages.WriteRequest req = new Messages.WriteRequest(msg.value,
+        new Messages.RequestInfo(getSelf(), requestCounter++));
+    scheduleRequestTimeout(req);
+    replica.tell(req, getSelf());
+
   }
 
   private void onReadResponse(Messages.ReadResponse msg) {
@@ -68,5 +100,6 @@ public class Client extends AbstractActor {
   private void onWriteResponse(Messages.WriteResponse msg) {
     log.info("Client " + clientId + " recieved write response from " + getSender().path().name() + " with outcome: "
         + (msg.success ? "SUCCESS" : "FAILED"));
+    cancelRequestTimeout(msg.requestInfo);
   }
 }

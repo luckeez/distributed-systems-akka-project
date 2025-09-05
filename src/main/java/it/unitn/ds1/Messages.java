@@ -34,16 +34,16 @@ public class Messages {
 
   public static class WriteRequest implements Serializable {
     public final int value;
-    public final ActorRef client;
+    public final RequestInfo requestInfo;
 
     public WriteRequest(int value) {
       this.value = value;
-      this.client = null;
+      this.requestInfo = null;
     }
 
-    public WriteRequest(int value, ActorRef client) {
+    public WriteRequest(int value, RequestInfo requestInfo) {
       this.value = value;
-      this.client = client;
+      this.requestInfo = requestInfo;
     }
   }
 
@@ -57,8 +57,10 @@ public class Messages {
 
   public static class WriteResponse implements Serializable {
     public final boolean success;
+    public final RequestInfo requestInfo;
 
-    public WriteResponse(boolean success) {
+    public WriteResponse(boolean success, RequestInfo requestInfo) {
+      this.requestInfo = requestInfo;
       this.success = success;
     }
   }
@@ -66,10 +68,12 @@ public class Messages {
   public static class Update implements Serializable {
     public final UpdateId updateId;
     public final int value;
+    public final RequestInfo requestInfo;
 
-    public Update(UpdateId updateId, int value) {
+    public Update(UpdateId updateId, int value, RequestInfo requestInfo) {
       this.updateId = updateId;
       this.value = value;
+      this.requestInfo = requestInfo;
     }
   }
 
@@ -109,6 +113,21 @@ public class Messages {
     @Override
     public String toString() {
       return epoch + ":" + sequenceNumber;
+    }
+  }
+
+  public static class RequestInfo implements Serializable {
+    public final ActorRef client;
+    public final int requestId;
+
+    public RequestInfo(ActorRef client, int requestId) {
+      this.client = client;
+      this.requestId = requestId;
+    }
+
+    @Override
+    public String toString() {
+      return "RequestInfo{client=" + client.path().name() + ", requestId=" + requestId + "}";
     }
   }
 
