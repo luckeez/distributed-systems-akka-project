@@ -54,6 +54,7 @@ public class QuorumSystem {
     System.out.println("scenario recovery       - Recovery and synchronization test");
     System.out.println("scenario stress         - Stress test with multiple operations");
     System.out.println("scenario update         - Crash during sending updates");
+    System.out.println("scenario beforeupdate   - Crash before sending updates");
   }
 
   private static void printStatus() {
@@ -172,6 +173,9 @@ public class QuorumSystem {
         case "update":
           runCrashDuringSendingUpdates();
           break;
+        case "beforeupdate":
+          runCrashBeforeSendingUpdate();
+          break;
         default:
           System.out.println("Unknown scenario: " + scenarioName);
           break;
@@ -216,6 +220,24 @@ public class QuorumSystem {
     Thread.sleep(2000);
     printStatus();
     System.out.println("Coordinator crash scenario completed");
+  }
+
+  private static void runCrashBeforeSendingUpdate() throws InterruptedException {
+    System.out.println("=== Crash Before Sending Update Scenario ===");
+
+    // Set coordinator to crash before sending updates
+    replicas.get(0).tell(new Messages.SetCrashPoint(Messages.CrashPoint.BEFORE_SENDING_UPDATE, 0), ActorRef.noSender());
+    Thread.sleep(500);
+
+    System.out.println("Sending write request that will trigger crash before sending updates...");
+    clients.get(0).tell(new Messages.WriteRequest(150), ActorRef.noSender());
+    Thread.sleep(5000);
+
+    System.out.println("Sending another write request to test recovery...");
+    clients.get(0).tell(new Messages.WriteRequest(250), ActorRef.noSender());
+    Thread.sleep(2000);
+    printStatus();
+    System.out.println("Crash before sending update scenario completed");
   }
 
   private static void runElectionScenario() throws InterruptedException {
@@ -271,9 +293,9 @@ public class QuorumSystem {
     clients.get(0).tell(new Messages.WriteRequest(800), ActorRef.noSender());
     Thread.sleep(5000);
 
-    System.out.println("Sending another write request to test recovery...");
-    clients.get(0).tell(new Messages.WriteRequest(900), ActorRef.noSender());
-    Thread.sleep(2000);
+    // System.out.println("Sending another write request to test recovery...");
+    // clients.get(0).tell(new Messages.WriteRequest(900), ActorRef.noSender());
+    // Thread.sleep(2000);
     printStatus();
     System.out.println("Crash during sending updates scenario completed");
   }

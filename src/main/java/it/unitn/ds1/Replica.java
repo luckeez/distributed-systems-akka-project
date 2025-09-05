@@ -121,9 +121,9 @@ public class Replica extends AbstractActor {
     int currentCount = operationCounts.get(point);
     operationCounts.put(point, currentCount + 1);
 
-    if (currentCount + 1 >= crashAfterOperations) {
+    if (currentCount >= crashAfterOperations) {
       log.info(Colors.RED +
-          "Replica " + replicaId + " crashing at " + point + " after " + (currentCount + 1) + " operations"
+          "Replica " + replicaId + " crashing at " + point + " after " + currentCount + " operations"
           + Colors.RESET);
       crashed = true;
       cancelTimeouts();
@@ -267,9 +267,13 @@ public class Replica extends AbstractActor {
     scheduleReplicaTimeouts();
 
     for (Messages.Update update : knownPendingUpdates) {
-      pendingAcks.put(update.updateId, 0);
-      pendingUpdates.put(update.updateId, update);
-      broadcast(update, null);
+      log.info("Coordinator " + replicaId + " re-broadcasting pending update " + update.updateId +
+          " value " + update.value);
+      Messages.Update newUpdate = new Messages.Update(new Messages.UpdateId(currentEpoch, currentSequenceNumber),
+          update.value);
+      pendingAcks.put(newUpdate.updateId, 0);
+      pendingUpdates.put(newUpdate.updateId, newUpdate);
+      broadcast(newUpdate, null);
     }
 
     electionInProgress = false;
@@ -568,13 +572,14 @@ public class Replica extends AbstractActor {
     Messages.Update myLastUpdate = getLastKnownUpdate();
     Messages.UpdateId myLastUpdateId = myLastUpdate == null ? new Messages.UpdateId(0, -1) : myLastUpdate.updateId;
 
+    Set<Messages.Update> knownPendingUpdates = new HashSet<>(msg.knownPendingUpdates);
+    knownPendingUpdates.addAll(pendingUpdates.values());
     if (myLastUpdateId.compareTo(msg.bestUpdateId) > 0 ||
         (myLastUpdateId.compareTo(msg.bestUpdateId) == 0 && replicaId > msg.bestCoordinator)) {
-      Set<Messages.Update> knownPendingUpdates = new HashSet<>(msg.knownPendingUpdates);
-      knownPendingUpdates.addAll(pendingUpdates.values());
       forwardToNextReplica(new Messages.Election(msg.initiatorId, replicaId, myLastUpdateId, knownPendingUpdates));
     } else {
-      forwardToNextReplica(msg);
+      forwardToNextReplica(
+          new Messages.Election(msg.initiatorId, msg.bestCoordinator, msg.bestUpdateId, knownPendingUpdates));
     }
   }
 
@@ -587,6 +592,7 @@ public class Replica extends AbstractActor {
     currentEpoch++;
     currentSequenceNumber = 0;
     electionInProgress = false;
+    pendingUpdates.clear();
 
     // Apply missed updates
     applyUpdates(msg.missedUpdates);
