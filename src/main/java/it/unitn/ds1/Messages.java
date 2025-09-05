@@ -4,6 +4,7 @@ import akka.actor.ActorRef;
 import java.io.Serializable;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public class Messages {
   public enum CrashPoint {
@@ -113,11 +114,9 @@ public class Messages {
 
   public static class Ack implements Serializable {
     public final UpdateId updateId;
-    public final int replicaId;
 
-    public Ack(UpdateId updateId, int replicaId) {
+    public Ack(UpdateId updateId) {
       this.updateId = updateId;
-      this.replicaId = replicaId;
     }
   }
 
@@ -147,23 +146,24 @@ public class Messages {
 
   public static class Election implements Serializable {
     public final int initiatorId;
-    public final int bestCoordiantor;
+    public final int bestCoordinator;
     public final UpdateId bestUpdateId;
-    public final Map<Integer, Update> knownUpdates;
+    public final Set<Update> knownPendingUpdates;
 
-    public Election(int initiatorId, int bestCoordiantor, UpdateId bestUpdateId, Map<Integer, Update> knownUpdates) {
-      this.knownUpdates = knownUpdates;
+    public Election(int initiatorId, int bestCoordinator, UpdateId bestUpdateId,
+        Set<Update> knownPendingUpdates) {
+      this.knownPendingUpdates = knownPendingUpdates;
       this.initiatorId = initiatorId;
-      this.bestCoordiantor = bestCoordiantor;
+      this.bestCoordinator = bestCoordinator;
       this.bestUpdateId = bestUpdateId;
     }
   }
 
   public static class NewCoordinator implements Serializable {
     public final int newCoordinatorId;
-    public final Map<Integer, Update> knownUpdates;
+    public final Set<Update> knownUpdates;
 
-    public NewCoordinator(int newCoordinatorId, Map<Integer, Update> knownUpdates) {
+    public NewCoordinator(int newCoordinatorId, Set<Update> knownUpdates) {
       this.knownUpdates = knownUpdates;
       this.newCoordinatorId = newCoordinatorId;
     }
@@ -171,9 +171,9 @@ public class Messages {
 
   public static class Synchronization implements Serializable {
     public final int newCoordinatorId;
-    public final Map<Integer, Update> missedUpdates;
+    public final List<Update> missedUpdates;
 
-    public Synchronization(int newCoordinatorId, Map<Integer, Update> missedUpdates) {
+    public Synchronization(int newCoordinatorId, List<Update> missedUpdates) {
       this.newCoordinatorId = newCoordinatorId;
       this.missedUpdates = missedUpdates;
     }
@@ -215,37 +215,5 @@ public class Messages {
   }
 
   public static class GetState implements Serializable {
-  }
-
-  public static class StateResponse implements Serializable {
-
-    public final int replicaId;
-    public final boolean isCoordinator;
-    public final int currentEpoch;
-    public final int currentValue;
-    public final UpdateId lastUpdateId;
-    public final boolean electionInProgress;
-    public final boolean isCrashed;
-    public final int groupSize;
-
-    public StateResponse(int replicaId, boolean isCoordinator, int currentEpoch, int currentValue,
-        UpdateId lastUpdateId, boolean electionInProgress, boolean isCrashed, int groupSize) {
-      this.replicaId = replicaId;
-      this.isCoordinator = isCoordinator;
-      this.currentEpoch = currentEpoch;
-      this.currentValue = currentValue;
-      this.lastUpdateId = lastUpdateId;
-      this.electionInProgress = electionInProgress;
-      this.isCrashed = isCrashed;
-      this.groupSize = groupSize;
-    }
-
-    @Override
-    public String toString() {
-      return String.format(
-          "Replica %d | Coordinator: %b | Epoch: %d | Value: %d | LastUpdateId: %s | ElectionInProgress: %b | Crashed: %b, GroupSize: %d",
-          replicaId, isCoordinator, currentEpoch, currentValue,
-          lastUpdateId != null ? lastUpdateId.toString() : "null", electionInProgress, isCrashed, groupSize);
-    }
   }
 }
