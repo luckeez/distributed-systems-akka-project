@@ -115,7 +115,7 @@ public class Replica extends AbstractActor {
   // HELPERS
 
   private boolean shouldCrash(Messages.CrashPoint point) {
-    if (crashed || crashPoint != point || replicas.size() <= quorumSize) {
+    if (crashed || point == null || crashPoint != point || replicas.size() <= quorumSize) {
       return false;
     }
     int currentCount = operationCounts.get(point);
@@ -251,7 +251,6 @@ public class Replica extends AbstractActor {
   }
 
   private void becomeCoordinator(Set<Messages.Update> knownPendingUpdates) {
-
     if (isCoordinator)
       return;
     log.info(Colors.GREEN + "Replica " + replicaId + " becoming the new Coordinator" + Colors.RESET);
@@ -263,14 +262,14 @@ public class Replica extends AbstractActor {
     currentSequenceNumber = 0;
 
     // missed updates for synchronization
-    broadcast(new Messages.Synchronization(replicaId, updateHistory));
+    broadcast(new Messages.Synchronization(replicaId, updateHistory), null);
     scheduleHeartBeat();
     scheduleReplicaTimeouts();
 
     for (Messages.Update update : knownPendingUpdates) {
       pendingAcks.put(update.updateId, 0);
       pendingUpdates.put(update.updateId, update);
-      broadcast(update);
+      broadcast(update, null);
     }
 
     electionInProgress = false;
@@ -288,10 +287,12 @@ public class Replica extends AbstractActor {
     }
   }
 
-  private void broadcast(Serializable msg) {
+  private void broadcast(Serializable msg, Messages.CrashPoint crashPoint) {
     for (ActorRef replica : replicas) {
       if (replica == getSelf())
         continue;
+      if (shouldCrash(crashPoint))
+        return;
       introduceNetworkDelay();
       replica.tell(msg, getSelf());
     }
@@ -380,10 +381,7 @@ public class Replica extends AbstractActor {
       pendingUpdates.put(updateId, update);
       pendingAcks.put(updateId, 0);
 
-      for (ActorRef replica : replicas) {
-        introduceNetworkDelay();
-        replica.tell(update, getSelf());
-      }
+      broadcast(update, Messages.CrashPoint.DURING_SENDING_UPDATE);
 
       if (shouldCrash(Messages.CrashPoint.AFTER_SENDING_UPDATE))
         return;
@@ -438,7 +436,7 @@ public class Replica extends AbstractActor {
         applyUpdate(pendingUpdates.get(msg.updateId));
         Messages.WriteOk writeOk = new Messages.WriteOk(msg.updateId);
 
-        broadcast(writeOk);
+        broadcast(writeOk, null);
 
         if (shouldCrash(Messages.CrashPoint.AFTER_SENDING_WRITEOK))
           return;
@@ -513,7 +511,7 @@ public class Replica extends AbstractActor {
     replicas.removeIf(r -> r.path().name().equals("Replica" + msg.replicaId));
 
     // notify the detected failure to other replicas
-    broadcast(new Messages.DetectedReplicaFailure(msg.replicaId));
+    broadcast(new Messages.DetectedReplicaFailure(msg.replicaId), null);
   }
 
   private void onTimeout(Messages.Timeout msg) {

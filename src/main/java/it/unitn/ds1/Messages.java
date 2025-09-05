@@ -3,12 +3,12 @@ package it.unitn.ds1;
 import akka.actor.ActorRef;
 import java.io.Serializable;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 
 public class Messages {
   public enum CrashPoint {
     BEFORE_SENDING_UPDATE,
+    DURING_SENDING_UPDATE,
     AFTER_SENDING_UPDATE,
     AFTER_RECEIVING_UPDATE,
     BEFORE_SENDING_ACK,

@@ -5,6 +5,7 @@ import akka.actor.ActorSystem;
 import it.unitn.ds1.debug.Colors;
 
 import java.util.*;
+import java.util.concurrent.TimeUnit;
 
 public class QuorumSystem {
   private static ActorSystem system;
@@ -52,6 +53,7 @@ public class QuorumSystem {
     System.out.println("scenario election       - Multiple crashes during election");
     System.out.println("scenario recovery       - Recovery and synchronization test");
     System.out.println("scenario stress         - Stress test with multiple operations");
+    System.out.println("scenario update         - Crash during sending updates");
   }
 
   private static void printStatus() {
@@ -167,6 +169,9 @@ public class QuorumSystem {
         case "stress":
           runStressScenario();
           break;
+        case "update":
+          runCrashDuringSendingUpdates();
+          break;
         default:
           System.out.println("Unknown scenario: " + scenarioName);
           break;
@@ -204,12 +209,12 @@ public class QuorumSystem {
 
     System.out.println("Sending write request that will trigger coordinator crash...");
     clients.get(0).tell(new Messages.WriteRequest(100), ActorRef.noSender());
-    Thread.sleep(2000);
+    Thread.sleep(5000);
 
     System.out.println("Sending another write request to test election...");
     clients.get(0).tell(new Messages.WriteRequest(200), ActorRef.noSender());
     Thread.sleep(2000);
-
+    printStatus();
     System.out.println("Coordinator crash scenario completed");
   }
 
@@ -255,6 +260,24 @@ public class QuorumSystem {
     System.out.println("Recovery scenario completed");
   }
 
+  private static void runCrashDuringSendingUpdates() throws InterruptedException {
+    System.out.println("=== Crash During Sending Updates Scenario ===");
+
+    // Set coordinator to crash during sending updates
+    replicas.get(0).tell(new Messages.SetCrashPoint(Messages.CrashPoint.DURING_SENDING_UPDATE, 1), ActorRef.noSender());
+    Thread.sleep(500);
+
+    System.out.println("Sending write request that will trigger crash during updates...");
+    clients.get(0).tell(new Messages.WriteRequest(800), ActorRef.noSender());
+    Thread.sleep(5000);
+
+    System.out.println("Sending another write request to test recovery...");
+    clients.get(0).tell(new Messages.WriteRequest(900), ActorRef.noSender());
+    Thread.sleep(2000);
+    printStatus();
+    System.out.println("Crash during sending updates scenario completed");
+  }
+
   private static void runStressScenario() throws InterruptedException {
     System.out.println("=== Stress Scenario: Multiple Concurrent Operations ===");
 
@@ -281,12 +304,15 @@ public class QuorumSystem {
 
     // Terminate current system
     system.terminate();
-
     try {
-      Thread.sleep(2000); // Wait for clean shutdown
-    } catch (InterruptedException e) {
-      Thread.currentThread().interrupt();
+      // Block until termination completes (max 10s)
+      system.getWhenTerminated().toCompletableFuture().get(10, TimeUnit.SECONDS);
+    } catch (Exception e) {
+      e.printStackTrace();
     }
+
+    clients.clear();
+    replicas.clear();
 
     // Create new system
     system = ActorSystem.create("QuorumSystem");
