@@ -106,13 +106,16 @@ public class Replica extends AbstractActor {
     public static class UpdateMsg implements Serializable {
         public final int epoch;
         public final int seqNum;
-        // public final int newV;
-        public int newV; // DEV
+        public final int newV;
+        public final int uniqueId;
+        public ActorRef sender;
 
-        public UpdateMsg(int epoch, int seqNum, int newV) {
+        public UpdateMsg(int epoch, int seqNum, int newV, int uniqueId, ActorRef sender) {
             this.epoch = epoch;
             this.seqNum = seqNum;
             this.newV = newV;
+            this.uniqueId = uniqueId;
+            this.sender = sender;
         }
     }
 
@@ -146,10 +149,12 @@ public class Replica extends AbstractActor {
     public static class WriteRequestMsg implements Serializable {
         public final ActorRef sender;
         public final int proposedV;
+        public final int uniqueId;
 
-        public WriteRequestMsg(ActorRef sender, int proposedV) {
+        public WriteRequestMsg(ActorRef sender, int proposedV, int uniqueId) {
             this.sender = sender;
             this.proposedV = proposedV;
+            this.uniqueId = uniqueId;
         }
     }
 
@@ -211,12 +216,14 @@ public class Replica extends AbstractActor {
         public final int seqNum;
         public final ActorRef sender;
         public final int candidateId;
+        public final boolean hasPendingUpdate;
 
-        public LeaderElectionMsg(int epoch, int seqNum, ActorRef sender, int candidateId) {
+        public LeaderElectionMsg(int epoch, int seqNum, ActorRef sender, int candidateId, boolean hasPendingUpdate) {
             this.epoch = epoch;
             this.seqNum = seqNum;
             this.sender = sender;
             this.candidateId = candidateId;
+            this.hasPendingUpdate = hasPendingUpdate;
         }
     }
 
@@ -270,18 +277,27 @@ public class Replica extends AbstractActor {
     private void onWriteRequestMsg(WriteRequestMsg msg){
         // correctly handle both client messages and replicas messages
         if (this.isCoordinator){
+
+            boolean exists = updates.stream().anyMatch(u -> u.uniqueId == msg.uniqueId);
+            if (exists) {
+                log.info("Coordinator {} received duplicate write request with uniqueId {}, ignoring it", this.id, msg.uniqueId);
+                tellToReplica(msg.sender, new Client.WriteAckMsg(msg.proposedV));
+                return;
+            }
+
+
             this.seqNum += 1;
-            this.pendingUpdate = new UpdateMsg(this.epoch, this.seqNum, msg.proposedV);
+            this.pendingUpdate = new UpdateMsg(this.epoch, this.seqNum, msg.proposedV, msg.uniqueId, msg.sender);
             this.ackCount = 1;
 
             // IF crash while writing
-            this.writeTimeout = getContext().system().scheduler().scheduleOnce(
-                    Duration.ofSeconds(heartbeatTimeoutDuration),
-                    getSelf(),
-                    new WriteTimeoutMsg(),
-                    getContext().system().dispatcher(),
-                    getSelf()
-            );
+            // this.writeTimeout = getContext().system().scheduler().scheduleOnce(
+            //         Duration.ofSeconds(heartbeatTimeoutDuration),
+            //         getSelf(),
+            //         new WriteTimeoutMsg(),
+            //         getContext().system().dispatcher(),
+            //         getSelf()
+            // );
 
             // DEV
             // DEBUG CRASH - during sending of update
@@ -304,9 +320,9 @@ public class Replica extends AbstractActor {
             }
 
 
-            tellToReplica(msg.sender, new Client.WriteAckMsg(msg.proposedV));
+            // tellToReplica(msg.sender, new Client.WriteAckMsg(msg.proposedV));
 
-            log.info("Coordinator {} broadcasted update message with value {}", this.id, msg.proposedV);
+            log.info("Coordinator {} broadcasted update message with value {}, uniqueId: {}", this.id, msg.proposedV, msg.uniqueId);
         } else {
             // forward the message to coordinator
             tellToReplica(this.coordinator, msg);
@@ -316,13 +332,6 @@ public class Replica extends AbstractActor {
 
     private void onUpdateMsg(UpdateMsg msg) {
         this.pendingUpdate = msg;
-
-        // DEV
-        // DEBUG CRASH - after receiving of update
-        // if (msg.newV == 7777){
-        //     crash();
-        //     return;
-        // }
 
         tellToReplica(getSender(), new AckMsg(msg.epoch, msg.seqNum));
         log.info("Replica {} received update message with value {}", this.id, msg.newV);
@@ -336,6 +345,11 @@ public class Replica extends AbstractActor {
 
                 WriteOkMsg m = new WriteOkMsg(this.epoch, this.seqNum);
 
+                // QUI?
+                tellToReplica(this.pendingUpdate.sender, new Client.WriteAckMsg(this.pendingUpdate.uniqueId));
+                log.info(Colors.GREEN + "Coordinator {} sent ACK to client of request ID = {}" + Colors.RESET, this.id, this.pendingUpdate.uniqueId);
+                //
+
                 // DEV
                 if (this.pendingUpdate.newV == 7777){
                     multicast(m, this.peers, true);
@@ -346,6 +360,11 @@ public class Replica extends AbstractActor {
 
                 this.v = this.pendingUpdate.newV;
                 this.updates.add(this.pendingUpdate);
+
+                // O QUI?
+                // tellToReplica(this.pendingUpdate.sender, new Client.WriteAckMsg(this.pendingUpdate.uniqueId));
+                // 
+
                 this.pendingUpdate = null;
                 if (this.writeTimeout != null && !writeTimeout.isCancelled()) {
                     this.writeTimeout.cancel();
@@ -361,11 +380,11 @@ public class Replica extends AbstractActor {
         if (msg.epoch == this.epoch && msg.seqNum == this.seqNum) {
             this.v = this.pendingUpdate.newV;
             this.updates.add(this.pendingUpdate);
-            this.pendingUpdate = null;
             if (this.writeTimeout != null && !writeTimeout.isCancelled()) {
                  this.writeTimeout.cancel();
             }
             log.info(Colors.BLUE + "Replica {} update {}:{} {}" + Colors.RESET, this.id, this.epoch, this.seqNum, this.v);
+            this.pendingUpdate = null;
         } else {
             log.error("Replica {} received write ok message with wrong epoch or seqNum", this.id);
             log.info("Expected : ({},{}) \nGot ({},{})", this.epoch, this.seqNum, msg.epoch, msg.seqNum);
@@ -390,7 +409,7 @@ public class Replica extends AbstractActor {
             .toList();
 
             String state = Colors.GREEN + this.currentState + Colors.RESET;
-            String str_info = "Coordinator: " + Colors.CYAN + this.coordinator.toString().replaceAll(".*/user/([^#]+).*", "$1") + Colors.RESET + "\nPeers: " + peersList + "\n" + "Epoch and SeqNum " + this.epoch + " - " + this.seqNum + "\nUpdates " + updatesList;
+            String str_info = "Coordinator: " + Colors.CYAN + this.coordinator.toString().replaceAll(".*/user/([^#]+).*", "$1") + Colors.RESET + "\nPeers: " + peersList + "\n" + "Epoch and SeqNum " + this.epoch + " - " + this.seqNum + "     ----     Pending Update: " + this.pendingUpdate + "\nUpdates " + updatesList;
             schedulerLogger.info("\n" + Colors.YELLOW + " REPLICA {} INFO" + Colors.RESET + "\nValue: {}   -   State: {}   -   {}\n", this.id, this.v, state, str_info);
         }
     }
@@ -498,7 +517,7 @@ public class Replica extends AbstractActor {
             if (nextReplica != null) {
                 ArrayList<ActorRef> notifiedReplicas = new ArrayList<>();
                 notifiedReplicas.add(getSelf());
-                tellToReplica(nextReplica, new LeaderElectionMsg(this.epoch, this.seqNum, getSelf(), this.id));
+                tellToReplica(nextReplica, new LeaderElectionMsg(this.epoch, this.seqNum, getSelf(), this.id, this.hasPendingUpdate()));
             } else {
                 // If this is the only replica left, it becomes the coordinator
                 selfElection();
@@ -607,15 +626,23 @@ public class Replica extends AbstractActor {
         // DEV
         // DEBUG CRASH - during election
 
-        // Determine if the current replica should be the new candidate
+        // // Determine if the current replica should be the new candidate
+        // boolean isBetterCandidate = (this.epoch > msg.epoch) ||
+        //         (msg.epoch == this.epoch && this.seqNum > msg.seqNum) ||
+        //         (msg.epoch == this.epoch && msg.seqNum == this.seqNum && this.id > msg.candidateId);
+
         boolean isBetterCandidate = (this.epoch > msg.epoch) ||
-                (msg.epoch == this.epoch && this.seqNum > msg.seqNum) ||
-                (msg.epoch == this.epoch && msg.seqNum == this.seqNum && this.id > msg.candidateId);
+            (this.epoch == msg.epoch && this.seqNum > msg.seqNum) ||
+            (this.epoch == msg.epoch && this.seqNum == msg.seqNum &&
+                ((this.hasPendingUpdate() && !msg.hasPendingUpdate) ||
+                (this.hasPendingUpdate() == msg.hasPendingUpdate && this.id > msg.candidateId)));
+
 
         // If I'm the best candidate, use my data, otherwise use msg data
         int newCandidateId = isBetterCandidate ? this.id : msg.candidateId;
         int newEpoch = isBetterCandidate ? this.epoch : msg.epoch;
         int newSeqNum = isBetterCandidate ? this.seqNum : msg.seqNum;
+        boolean newHasPendingUpdate = isBetterCandidate ? this.hasPendingUpdate() : msg.hasPendingUpdate;
 
         // Forward the election message to the next replica in the ring
         ActorRef nextReplica = getNextReplica();
@@ -628,7 +655,7 @@ public class Replica extends AbstractActor {
             selfElection();
             tellUpdates();
         } else {
-            tellToReplica(nextReplica, new LeaderElectionMsg(newEpoch, newSeqNum, getSelf(), newCandidateId));
+            tellToReplica(nextReplica, new LeaderElectionMsg(newEpoch, newSeqNum, getSelf(), newCandidateId, newHasPendingUpdate));
         }
 
     }
@@ -646,12 +673,11 @@ public class Replica extends AbstractActor {
                 log.info("Replica {} synchronized update with seqNum {} and value {}", this.id, update.seqNum, update.newV);
             }
         }
-
+        // this.pendingUpdate = null; // clear any pending update
         this.coordinator = msg.newCoordinator;
         this.epoch = msg.epoch;
         this.seqNum = msg.seqNum;
         this.isCoordinator = (msg.newCoordinator == getSelf());
-        log.info("Replica {}: My coordinator is {}", this.id, this.coordinator);
 
         resetHeartbeatTimeout();
     }
@@ -684,13 +710,17 @@ public class Replica extends AbstractActor {
         // The new coordinator resends the pending update to all replicas waiting for ACKs and then sends WriteOks
         if (!this.isCoordinator) return;
         if (this.pendingUpdate != null) {
-            this.pendingUpdate = new UpdateMsg(this.epoch, this.seqNum, this.pendingUpdate.newV); // the Update is recreated with the new epoch and seqNum
+            this.pendingUpdate = new UpdateMsg(this.epoch, this.seqNum, this.pendingUpdate.newV, this.pendingUpdate.uniqueId, this.pendingUpdate.sender); // the Update is recreated with the new epoch and seqNum
             multicast(this.pendingUpdate, this.peers, false);
             log.info("New Coordinator {} broadcasted update message with value {}", this.id, this.pendingUpdate.newV);
         }
 
         SynchronizationMsg m = new SynchronizationMsg(this.epoch, this.seqNum, getSelf(), new ArrayList<>(this.updates));
             multicast(m, this.peers, false);
+    }
+
+        private boolean hasPendingUpdate() {
+        return this.pendingUpdate != null;
     }
 
     /* -------------------------------------------------------------- */

@@ -23,11 +23,13 @@ public class Client extends AbstractActor {
     private Cancellable requestScheduler;
     private Cancellable readRequestTimeout;
     private Cancellable writeRequestTimeout;
+    private int writeSequentialId;
 
     // CONSTRUCTOR
     public Client(int id){
         this.id = id;
         this.rnd = new Random();
+        this.writeSequentialId = 0;
     }   
 
     static public Props props(int id){
@@ -70,9 +72,9 @@ public class Client extends AbstractActor {
     }
 
     public static class WriteAckMsg implements Serializable{
-        public final int proposedV;
-        public WriteAckMsg(int proposedV){
-            this.proposedV = proposedV;
+        public final int uniqueId;
+        public WriteAckMsg(int uniqueId){
+            this.uniqueId = uniqueId;
         }
     }
 
@@ -112,11 +114,12 @@ public class Client extends AbstractActor {
 
     private void onWriteRequestMsg(WriteRequestMsg msg){
         int to = rnd.nextInt(this.replicas.size());
-        replicas.get(to).tell(new Replica.WriteRequestMsg(getSelf(), msg.proposedV), getSelf());
-        log.info(Colors.YELLOW + "Client {} sent write request to replica {} with value {}"+ Colors.RESET, this.id, to, msg.proposedV);
+        replicas.get(to).tell(new Replica.WriteRequestMsg(getSelf(), msg.proposedV, this.writeSequentialId), getSelf());
+        String s = "to replica " + to + " with value " + msg.proposedV + ", ID = " + this.writeSequentialId;
+        log.info(Colors.YELLOW + "Client {} sent write request {}"+ Colors.RESET, this.id, s);
 
         this.writeRequestTimeout = getContext().system().scheduler().scheduleOnce(
-                Duration.ofSeconds(2),  // duration
+                Duration.ofSeconds(5),  // duration
                 getSelf(),   // receiver
                 new WriteRequestTimeoutMsg(replicas.get(to), msg.proposedV), // message type
                 getContext().system().dispatcher(), // process
@@ -152,7 +155,8 @@ public class Client extends AbstractActor {
         if (writeRequestTimeout != null && !writeRequestTimeout.isCancelled()) {
             writeRequestTimeout.cancel();
         }
-        log.info(Colors.GREEN + "Client {} write done (received ACK) of value {}" + Colors.RESET, this.id, msg.proposedV);
+        log.info(Colors.GREEN + "Client {} write done (received ACK) of request ID = {}" + Colors.RESET, this.id, msg.uniqueId);
+        this.writeSequentialId += 1;
     }
 
     private void onReadRequestTimeoutMsg(ReadRequestTimeoutMsg msg){
@@ -180,15 +184,15 @@ public class Client extends AbstractActor {
         if (msg.proposedV == 8888){
             msg.proposedV = 8000;
         }
-        if (msg.proposedV == 7777){
-            msg.proposedV = 7000;
-        }
+        // if (msg.proposedV == 7777){
+        //     msg.proposedV = 7000;
+        // }
         if (msg.proposedV == 6666){
             msg.proposedV = 6000;
         }
         // PROBLEMA: quando coordinator crasha meentre client fa una write, non deve rimuovere la replica a cui ha inviato la request.
         // remove from the list the crashed replica and resend a write request with the same proposed value
-        this.replicas.remove(msg.replica);
+        // this.replicas.remove(msg.replica);
         getSelf().tell(new WriteRequestMsg(getSelf(), msg.proposedV), ActorRef.noSender());
     }
 

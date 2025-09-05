@@ -24,3 +24,6 @@ END {
     }
 }
 '
+echo "---------------------------------------------------------"
+echo "Client LOG"
+tail -n 8 logs/client.ans

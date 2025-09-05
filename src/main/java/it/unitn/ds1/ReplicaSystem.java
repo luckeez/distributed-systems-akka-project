@@ -118,7 +118,7 @@ public class ReplicaSystem {
                         // TODO write
                         // fare write request direttamente da console senza passare per client?
                         client.tell(new Client.WriteRequestMsg(client, rnd.nextInt(100)), ActorRef.noSender());
-                        log.info("COnsole write from client1");
+                        log.info("Console write from client1");
                         break;
 
                     case 'r':
