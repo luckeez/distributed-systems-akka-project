@@ -364,7 +364,7 @@ public class Replica extends AbstractActor {
       if (shouldCrash(Messages.CrashPoint.BEFORE_SENDING_UPDATE))
         return;
 
-      Messages.UpdateId updateId = new Messages.UpdateId(currentEpoch, currentSequenceNumber++);
+      Messages.UpdateId updateId = new Messages.UpdateId(currentEpoch, currentSequenceNumber);
       Messages.Update update = new Messages.Update(updateId, msg.value);
 
       log.info(Colors.CYAN + "Coordinator " + replicaId + " initiating update " + updateId + " value " + update.value +
@@ -612,8 +612,8 @@ public class Replica extends AbstractActor {
     if (crashed)
       return;
     String status = String.format(
-        "Replica %d | Coordinator: %b | Epoch: %d | Value: %d | LastUpdateId: %s | ElectionInProgress: %b | Crashed: %b, GroupSize: %d",
-        replicaId, isCoordinator, currentEpoch, currentValue,
+        "Replica %d | Coordinator: %b | Epoch: %d | SeqNum: %d | Value: %d | LastUpdateId: %s | ElectionInProgress: %b | Crashed: %b, GroupSize: %d",
+        replicaId, isCoordinator, currentEpoch, currentSequenceNumber, currentValue,
         updateHistory.isEmpty() ? new Messages.UpdateId(0, -1).toString()
             : getLastKnownUpdate().updateId.toString(),
         electionInProgress, crashed, replicas.size());
