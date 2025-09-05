@@ -31,10 +31,10 @@ public class Client extends AbstractActor {
   @Override
   public Receive createReceive() {
     return receiveBuilder()
-        .match(Messages.ReadRequest.class, this::handleReadRequest)
-        .match(Messages.WriteRequest.class, this::handleWriteRequest)
-        .match(Messages.ReadResponse.class, this::handleReadResponse)
-        .match(Messages.WriteResponse.class, this::handleWriteResponse)
+        .match(Messages.ReadRequest.class, this::onReadRequest)
+        .match(Messages.WriteRequest.class, this::onWriteRequest)
+        .match(Messages.ReadResponse.class, this::onReadResponse)
+        .match(Messages.WriteResponse.class, this::onWriteResponse)
         .build();
   }
 
@@ -46,26 +46,26 @@ public class Client extends AbstractActor {
     }
   }
 
-  private void handleReadRequest(Messages.ReadRequest msg) {
+  private void onReadRequest(Messages.ReadRequest msg) {
     ActorRef replica = replicas.get(ThreadLocalRandom.current().nextInt(replicas.size()));
     log.info("Client " + clientId + " read request to " + replica.path().name());
     introduceNetworkDelay();
     replica.tell(msg, getSelf());
   }
 
-  private void handleWriteRequest(Messages.WriteRequest msg) {
+  private void onWriteRequest(Messages.WriteRequest msg) {
     ActorRef replica = replicas.get(ThreadLocalRandom.current().nextInt(replicas.size()));
     log.info("Client " + clientId + " write request with value " + msg.value + " to " + replica.path().name());
     introduceNetworkDelay();
     replica.tell(msg, getSelf());
   }
 
-  private void handleReadResponse(Messages.ReadResponse msg) {
+  private void onReadResponse(Messages.ReadResponse msg) {
     log.info("Client " + clientId + " received read response with value " + msg.value + " from "
         + getSender().path().name());
   }
 
-  private void handleWriteResponse(Messages.WriteResponse msg) {
+  private void onWriteResponse(Messages.WriteResponse msg) {
     log.info("Client " + clientId + " recieved write response from " + getSender().path().name() + " with outcome: "
         + (msg.success ? "SUCCESS" : "FAILED"));
   }

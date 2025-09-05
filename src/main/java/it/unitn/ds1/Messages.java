@@ -149,8 +149,10 @@ public class Messages {
     public final int initiatorId;
     public final int bestCoordiantor;
     public final UpdateId bestUpdateId;
+    public final Map<Integer, Update> knownUpdates;
 
-    public Election(int initiatorId, int bestCoordiantor, UpdateId bestUpdateId) {
+    public Election(int initiatorId, int bestCoordiantor, UpdateId bestUpdateId, Map<Integer, Update> knownUpdates) {
+      this.knownUpdates = knownUpdates;
       this.initiatorId = initiatorId;
       this.bestCoordiantor = bestCoordiantor;
       this.bestUpdateId = bestUpdateId;
@@ -159,17 +161,19 @@ public class Messages {
 
   public static class NewCoordinator implements Serializable {
     public final int newCoordinatorId;
+    public final Map<Integer, Update> knownUpdates;
 
-    public NewCoordinator(int newCoordinatorId) {
+    public NewCoordinator(int newCoordinatorId, Map<Integer, Update> knownUpdates) {
+      this.knownUpdates = knownUpdates;
       this.newCoordinatorId = newCoordinatorId;
     }
   }
 
   public static class Synchronization implements Serializable {
     public final int newCoordinatorId;
-    public final List<Update> missedUpdates;
+    public final Map<Integer, Update> missedUpdates;
 
-    public Synchronization(int newCoordinatorId, List<Update> missedUpdates) {
+    public Synchronization(int newCoordinatorId, Map<Integer, Update> missedUpdates) {
       this.newCoordinatorId = newCoordinatorId;
       this.missedUpdates = missedUpdates;
     }

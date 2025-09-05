@@ -186,7 +186,7 @@ public class QuorumSystem {
     replicas.get(0).tell(new Messages.ReadRequest(), clients.get(1));
     Thread.sleep(500);
 
-    clients.get(1).tell(new Messages.WriteRequest(20), ActorRef.noSender());
+    clients.get(0).tell(new Messages.WriteRequest(20), ActorRef.noSender());
     Thread.sleep(1000);
 
     replicas.get(2).tell(new Messages.ReadRequest(), clients.get(0));
@@ -207,7 +207,7 @@ public class QuorumSystem {
     Thread.sleep(2000);
 
     System.out.println("Sending another write request to test election...");
-    clients.get(1).tell(new Messages.WriteRequest(200), ActorRef.noSender());
+    clients.get(0).tell(new Messages.WriteRequest(200), ActorRef.noSender());
     Thread.sleep(2000);
 
     System.out.println("Coordinator crash scenario completed");
@@ -225,7 +225,7 @@ public class QuorumSystem {
     clients.get(0).tell(new Messages.WriteRequest(300), ActorRef.noSender());
     Thread.sleep(3000);
 
-    clients.get(1).tell(new Messages.WriteRequest(400), ActorRef.noSender());
+    clients.get(0).tell(new Messages.WriteRequest(400), ActorRef.noSender());
     Thread.sleep(2000);
 
     System.out.println("Election scenario completed");
@@ -243,17 +243,14 @@ public class QuorumSystem {
     Thread.sleep(1000);
 
     // Continue operations with new coordinator
-    clients.get(1).tell(new Messages.WriteRequest(600), ActorRef.noSender());
+    clients.get(0).tell(new Messages.WriteRequest(600), ActorRef.noSender());
     Thread.sleep(2000);
 
-    clients.get(2).tell(new Messages.WriteRequest(700), ActorRef.noSender());
+    clients.get(0).tell(new Messages.WriteRequest(700), ActorRef.noSender());
     Thread.sleep(1000);
 
     // Read from different replicas to check consistency
-    for (int i = 1; i < replicas.size(); i++) {
-      replicas.get(i).tell(new Messages.ReadRequest(), clients.get(0));
-      Thread.sleep(300);
-    }
+    printStatus();
 
     System.out.println("Recovery scenario completed");
   }
