@@ -24,6 +24,11 @@ public class Client extends AbstractActor {
   }
 
   @Override
+  public void preStart() {
+    log.info("Client " + clientId + " started successfully");
+  }
+
+  @Override
   public Receive createReceive() {
     return receiveBuilder()
         .match(Messages.ReadRequest.class, this::handleReadRequest)

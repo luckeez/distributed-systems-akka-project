@@ -147,11 +147,13 @@ public class Messages {
 
   public static class Election implements Serializable {
     public final int initiatorId;
-    public final Map<Integer, UpdateId> knownUpdates;
+    public final int bestCoordiantor;
+    public final UpdateId bestUpdateId;
 
-    public Election(int initiatorId, Map<Integer, UpdateId> knownUpdates) {
+    public Election(int initiatorId, int bestCoordiantor, UpdateId bestUpdateId) {
       this.initiatorId = initiatorId;
-      this.knownUpdates = knownUpdates;
+      this.bestCoordiantor = bestCoordiantor;
+      this.bestUpdateId = bestUpdateId;
     }
   }
 
@@ -220,9 +222,10 @@ public class Messages {
     public final UpdateId lastUpdateId;
     public final boolean electionInProgress;
     public final boolean isCrashed;
+    public final int groupSize;
 
     public StateResponse(int replicaId, boolean isCoordinator, int currentEpoch, int currentValue,
-        UpdateId lastUpdateId, boolean electionInProgress, boolean isCrashed) {
+        UpdateId lastUpdateId, boolean electionInProgress, boolean isCrashed, int groupSize) {
       this.replicaId = replicaId;
       this.isCoordinator = isCoordinator;
       this.currentEpoch = currentEpoch;
@@ -230,14 +233,15 @@ public class Messages {
       this.lastUpdateId = lastUpdateId;
       this.electionInProgress = electionInProgress;
       this.isCrashed = isCrashed;
+      this.groupSize = groupSize;
     }
 
     @Override
     public String toString() {
       return String.format(
-          "Replica %d | Coordinator: %b | Epoch: %d | Value: %d | LastUpdateId: %s | ElectionInProgress: %b | Crashed: %b",
+          "Replica %d | Coordinator: %b | Epoch: %d | Value: %d | LastUpdateId: %s | ElectionInProgress: %b | Crashed: %b, GroupSize: %d",
           replicaId, isCoordinator, currentEpoch, currentValue,
-          lastUpdateId != null ? lastUpdateId.toString() : "null", electionInProgress, isCrashed);
+          lastUpdateId != null ? lastUpdateId.toString() : "null", electionInProgress, isCrashed, groupSize);
     }
   }
 }

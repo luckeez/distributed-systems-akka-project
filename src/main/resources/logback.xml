@@ -52,7 +52,7 @@
         </rollingPolicy>
     </appender>
  -->
-    <!-- Client Appender -->
+    Client Appender
     <appender name="CLIENT_FILE" class="ch.qos.logback.core.FileAppender">
         <file>logs/client.ans</file>
         <append>false</append>
@@ -95,7 +95,7 @@
     </appender>
 
     <logger name="it.unitn.ds1.Client" level="all" additivity="false">
-        <appender-ref ref="CLIENT_FILE" />
+        <appender-ref ref="CONSOLE" />
     </logger>
 
     <logger name="getInfo" level="all" additivity="false">
