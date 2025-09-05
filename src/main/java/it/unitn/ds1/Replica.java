@@ -245,12 +245,9 @@ public class Replica extends AbstractActor {
     electionInProgress = true;
     replicas.removeIf(r -> r.path().name().equals("Replica" + coordinatorId));
     log.info("Replica " + replicaId + " started the election process");
-    if (!updateHistory.isEmpty()) {
-      Messages.Update lastUpdate = getLastKnownUpdate();
-      Set<Messages.Update> knownPendingUpdates = new HashSet<>();
-      knownPendingUpdates.addAll(pendingUpdates.values());
-      forwardToNextReplica(new Messages.Election(replicaId, replicaId, lastUpdate.updateId, knownPendingUpdates));
-    }
+    Set<Messages.Update> knownPendingUpdates = new HashSet<>();
+    knownPendingUpdates.addAll(pendingUpdates.values());
+    forwardToNextReplica(new Messages.Election(replicaId, replicaId, getLastKnownUpdateId(), knownPendingUpdates));
   }
 
   private void becomeCoordinator(Set<Messages.Update> knownPendingUpdates) {
@@ -339,6 +336,15 @@ public class Replica extends AbstractActor {
     }
   }
 
+  private Messages.UpdateId getLastKnownUpdateId() {
+    Messages.Update lastUpdate = getLastKnownUpdate();
+    if (lastUpdate == null) {
+      return new Messages.UpdateId(0, -1);
+    } else {
+      return lastUpdate.updateId;
+    }
+  }
+
   // onRS
   private void onInitialize(Messages.Initialize msg) {
     if (crashed)
@@ -346,6 +352,7 @@ public class Replica extends AbstractActor {
     this.replicas = new ArrayList<>(msg.replicas);
     log.info(
         Colors.GREEN + "Replica " + replicaId + " initialized with " + replicas.size() + " replicas" + Colors.RESET);
+
   }
 
   private void onReadRequest(Messages.ReadRequest msg) {
