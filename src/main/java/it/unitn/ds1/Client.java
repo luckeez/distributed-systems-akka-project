@@ -8,7 +8,6 @@ import akka.event.Logging;
 import akka.event.LoggingAdapter;
 import scala.concurrent.duration.Duration;
 
-import java.io.Serializable;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -84,6 +83,14 @@ public class Client extends AbstractActor {
   private void onWriteRequest(Messages.WriteRequest msg) {
     ActorRef replica = replicas.get(ThreadLocalRandom.current().nextInt(replicas.size()));
     log.info("Client " + clientId + " write request with value " + msg.value + " to " + replica.path().name());
+    while (!pendingRequestsTimeouts.isEmpty()) {
+      // Wait for previous requests to complete
+      try {
+        Thread.sleep(100);
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+      }
+    }
     introduceNetworkDelay();
     Messages.WriteRequest req = new Messages.WriteRequest(msg.value,
         new Messages.RequestInfo(getSelf(), requestCounter++));

@@ -410,19 +410,20 @@ public class Replica extends AbstractActor {
 
       if (shouldCrash(Messages.CrashPoint.AFTER_SENDING_UPDATE))
         return;
-      if (updateTimeout != null) {
-        updateTimeout.cancel();
-      }
-      updateTimeout = getContext().getSystem().scheduler().scheduleOnce(
-          Duration.create(2, TimeUnit.SECONDS),
-          getSelf(),
-          new Messages.Timeout(),
-          getContext().getDispatcher(),
-          getSelf());
     } else {
       introduceNetworkDelay();
       forwardToCoordinator(new Messages.WriteRequest(msg.value, msg.requestInfo));
     }
+    if (updateTimeout != null) {
+      updateTimeout.cancel();
+    }
+    updateTimeout = getContext().getSystem().scheduler().scheduleOnce(
+        Duration.create(2, TimeUnit.SECONDS),
+        getSelf(),
+        new Messages.Timeout(),
+        getContext().getDispatcher(),
+        getSelf());
+
   }
 
   private void onUpdate(Messages.Update msg) {
@@ -548,7 +549,7 @@ public class Replica extends AbstractActor {
       return;
     if (isCoordinator) {
       log.info("Coordinator " + replicaId + " timeout waiting for acks");
-      // TODO: think about what to do if the coordinator timeout on writeok acks
+      // TODO: think about what to do if the coordinator times out waiting for ACKs
     } else {
       log.info("Replica " + replicaId + " timeout waiting for WRITEOK, starting eletion process...");
       startElection();
