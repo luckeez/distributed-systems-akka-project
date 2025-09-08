@@ -241,16 +241,16 @@ public class QuorumSystem {
     System.out.println("=== Election Scenario: Multiple Crashes ===");
 
     // Set multiple replicas to crash at different points
-    replicas.get(0).tell(new Messages.SetCrashPoint(Messages.CrashPoint.BEFORE_SENDING_WRITEOK, 1),
-        ActorRef.noSender());
-    replicas.get(1).tell(new Messages.SetCrashPoint(Messages.CrashPoint.DURING_ELECTION, 1), ActorRef.noSender());
+    replicas.get(4).tell(new Messages.SetCrashPoint(Messages.CrashPoint.DURING_ELECTION, 1), ActorRef.noSender());
+
     Thread.sleep(500);
 
-    clients.get(0).tell(new Messages.WriteRequest(300), ActorRef.noSender());
-    Thread.sleep(3000);
-
-    clients.get(0).tell(new Messages.WriteRequest(400), ActorRef.noSender());
-    Thread.sleep(2000);
+    replicas.get(0).tell(new Messages.Crash(), ActorRef.noSender());
+    // clients.get(0).tell(new Messages.WriteRequest(300), ActorRef.noSender());
+    // Thread.sleep(3000);
+    //
+    // clients.get(0).tell(new Messages.WriteRequest(400), ActorRef.noSender());
+    Thread.sleep(7000);
 
     System.out.println("Election scenario completed");
   }

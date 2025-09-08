@@ -69,7 +69,7 @@ public class Replica extends AbstractActor {
   public void preStart() {
     if (isCoordinator) {
 
-      getContext().become(coordinatoor());
+      getContext().become(coordinator());
       scheduleHeartBeat();
       scheduleReplicaTimeouts();
     }
@@ -85,7 +85,7 @@ public class Replica extends AbstractActor {
         .build();
   }
 
-  final AbstractActor.Receive coordinatoor() {
+  final AbstractActor.Receive coordinator() {
     return receiveBuilder()
         .match(Messages.Initialize.class, this::onInitialize)
         .match(Messages.ReadRequest.class, this::onReadRequest)
@@ -99,7 +99,7 @@ public class Replica extends AbstractActor {
         .match(Messages.SetCrashPoint.class, this::onSetCrashPoint)
         .match(Messages.Crash.class, this::onCrash)
         .matchAny(msg -> {
-          log.info("Coordinator cannot process messages of normal replicas");
+          log.info("Coordinator " + replicaId + " ignoring message " + msg.getClass().getSimpleName());
         })
         .build();
   }
@@ -306,7 +306,7 @@ public class Replica extends AbstractActor {
     if (isCoordinator)
       return;
 
-    getContext().become(coordinatoor());
+    getContext().become(coordinator());
 
     log.info(Colors.GREEN + "Replica " + replicaId + " becoming the new Coordinator" + Colors.RESET);
     if (shouldCrash(Messages.CrashPoint.BEFORE_SYNCHRONIZATION))
@@ -363,10 +363,29 @@ public class Replica extends AbstractActor {
     }
   }
 
+  private boolean isAlive(int replicaId) {
+    for (ActorRef replica : replicas) {
+      if (replica.path().name().equals("Replica" + replicaId)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private ActorRef getNextReplica() {
+    int nextReplica = 0;
+    for (int i = 0; i < replicas.size(); i++) {
+      if (replicas.get(i).equals(getSelf())) {
+        nextReplica = (i + 1) % replicas.size();
+        break;
+      }
+    }
+    return this.replicas.get(nextReplica);
+  }
+
   private void forwardToNextReplica(Serializable msg) {
-    int nextReplica = (replicaId + 1) % replicas.size();
     introduceNetworkDelay();
-    replicas.get(nextReplica).tell(msg, getSelf());
+    getNextReplica().tell(msg, getSelf());
   }
 
   private void applyUpdates(List<Messages.Update> knownUpdates) {
@@ -585,9 +604,11 @@ public class Replica extends AbstractActor {
   }
 
   private void onElectionAckTimeout(Messages.ElectionAckTimeout msg) {
-    log.info(Colors.RED + "Replica " + replicaId + " election ack timeout, assuming replica " +
-        (replicaId + 1) % replicas.size() + " crashed" + Colors.RESET);
-    this.replicas.removeIf(r -> r.path().name().equals("Replica" + (replicaId + 1) % replicas.size()));
+    ActorRef nextReplica = getNextReplica();
+    this.replicas.removeIf(r -> r.equals(nextReplica));
+    log.info(Colors.RED + "Replica " + replicaId + " timeout waiting for election ack from " +
+        nextReplica.path().name() + ", assuming it crashed" + Colors.RESET);
+
     setElectionAckTimeout(msg.msg);
     forwardToNextReplica(msg.msg);
   }
@@ -616,9 +637,14 @@ public class Replica extends AbstractActor {
 
   private void onElection(Messages.Election msg) {
     if (shouldCrash(Messages.CrashPoint.DURING_ELECTION))
-      // TODO: think how to on crashes during election
       return;
-    log.info("Replica " + replicaId + " received election message from " + msg.initiatorId);
+
+    if (!isAlive(msg.initiatorId)) {
+      return;
+    }
+    getSender().tell(new Messages.ElectionAck(this.replicaId), getSelf());
+    log.info("Replica " + replicaId + " received election message from " + getSender().path().name());
+
     if (!electionInProgress) {
       electionInProgress = true;
       replicas.removeIf(r -> r.path().name().equals("Replica" + coordinatorId));
@@ -643,10 +669,21 @@ public class Replica extends AbstractActor {
     knownPendingUpdates.addAll(pendingUpdates.values());
     if (myLastUpdateId.compareTo(msg.bestUpdateId) > 0 ||
         (myLastUpdateId.compareTo(msg.bestUpdateId) == 0 && replicaId > msg.bestCoordinator)) {
-      forwardToNextReplica(new Messages.Election(msg.initiatorId, replicaId, myLastUpdateId, knownPendingUpdates));
+      Messages.Election newMsg = new Messages.Election(
+          msg.initiatorId,
+          replicaId,
+          myLastUpdateId,
+          knownPendingUpdates);
+      setElectionAckTimeout(newMsg);
+      forwardToNextReplica(newMsg);
     } else {
-      forwardToNextReplica(
-          new Messages.Election(msg.initiatorId, msg.bestCoordinator, msg.bestUpdateId, knownPendingUpdates));
+      Messages.Election newMsg = new Messages.Election(
+          msg.initiatorId,
+          msg.bestCoordinator,
+          msg.bestUpdateId,
+          knownPendingUpdates);
+      setElectionAckTimeout(newMsg);
+      forwardToNextReplica(newMsg);
     }
   }
 
