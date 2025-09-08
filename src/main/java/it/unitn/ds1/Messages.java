@@ -131,6 +131,14 @@ public class Messages {
     }
   }
 
+  public static class ElectionAck implements Serializable {
+    public final int replicaId;
+
+    public ElectionAck(int replicaId) {
+      this.replicaId = replicaId;
+    }
+  }
+
   public static class Ack implements Serializable {
     public final UpdateId updateId;
 
@@ -211,6 +219,14 @@ public class Messages {
 
     public DetectedReplicaFailure(int failedReplicaId) {
       this.failedReplicaId = failedReplicaId;
+    }
+  }
+
+  public static class ElectionAckTimeout implements Serializable {
+    public final Election msg;
+
+    public ElectionAckTimeout(Election msg) {
+      this.msg = msg;
     }
   }
 

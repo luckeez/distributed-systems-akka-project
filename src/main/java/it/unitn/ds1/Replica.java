@@ -40,6 +40,7 @@ public class Replica extends AbstractActor {
   private Cancellable updateTimeout;
   private Cancellable heartBeatTimeout;
   private Map<String, Cancellable> replicaTimeouts;
+  private Cancellable electionAckTimeout;
 
   private boolean electionInProgress = false;
 
@@ -126,6 +127,8 @@ public class Replica extends AbstractActor {
         .match(Messages.SetCrashPoint.class, this::onSetCrashPoint)
         .match(Messages.GetState.class, this::onGetState)
         .match(Messages.NewCoordinator.class, this::onNewCoordinator)
+        .match(Messages.ElectionAck.class, this::onElectionAck)
+        .match(Messages.ElectionAckTimeout.class, this::onElectionAckTimeout)
         .build();
   }
 
@@ -237,6 +240,19 @@ public class Replica extends AbstractActor {
     }
   }
 
+  private void setElectionAckTimeout(Messages.Election msg) {
+    if (electionAckTimeout != null) {
+      electionAckTimeout.cancel();
+    }
+
+    electionAckTimeout = getContext().getSystem().scheduler().scheduleOnce(
+        Duration.create(2, TimeUnit.SECONDS),
+        getSelf(),
+        new Messages.ElectionAckTimeout(msg),
+        getContext().getDispatcher(),
+        getSelf());
+  }
+
   private void cancelTimeouts() {
     if (heartBeatSchedule != null) {
       heartBeatSchedule.cancel();
@@ -277,7 +293,13 @@ public class Replica extends AbstractActor {
     log.info("Replica " + replicaId + " started the election process");
     Set<Messages.Update> knownPendingUpdates = new HashSet<>();
     knownPendingUpdates.addAll(pendingUpdates.values());
-    forwardToNextReplica(new Messages.Election(replicaId, replicaId, getLastKnownUpdateId(), knownPendingUpdates));
+    Messages.Election msg = new Messages.Election(
+        replicaId,
+        replicaId,
+        getLastKnownUpdateId(),
+        knownPendingUpdates);
+    setElectionAckTimeout(msg);
+    forwardToNextReplica(msg);
   }
 
   private void becomeCoordinator(Set<Messages.Update> knownPendingUpdates) {
@@ -472,6 +494,12 @@ public class Replica extends AbstractActor {
       return;
   }
 
+  private void onElectionAck(Messages.ElectionAck msg) {
+    if (electionAckTimeout != null) {
+      electionAckTimeout.cancel();
+    }
+  }
+
   private void onAck(Messages.Ack msg) {
     if (pendingAcks.containsKey(msg.updateId)) {
       int currentAcks = pendingAcks.get(msg.updateId);
@@ -554,6 +582,14 @@ public class Replica extends AbstractActor {
 
     // notify the detected failure to other replicas
     broadcast(new Messages.DetectedReplicaFailure(msg.replicaId), null);
+  }
+
+  private void onElectionAckTimeout(Messages.ElectionAckTimeout msg) {
+    log.info(Colors.RED + "Replica " + replicaId + " election ack timeout, assuming replica " +
+        (replicaId + 1) % replicas.size() + " crashed" + Colors.RESET);
+    this.replicas.removeIf(r -> r.path().name().equals("Replica" + (replicaId + 1) % replicas.size()));
+    setElectionAckTimeout(msg.msg);
+    forwardToNextReplica(msg.msg);
   }
 
   private void onTimeout(Messages.Timeout msg) {
