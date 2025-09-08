@@ -217,7 +217,7 @@ public class QuorumSystem {
 
     System.out.println("Sending another write request to test election...");
     clients.get(0).tell(new Messages.WriteRequest(200), ActorRef.noSender());
-    Thread.sleep(2000);
+    Thread.sleep(7000);
     printStatus();
     System.out.println("Coordinator crash scenario completed");
   }

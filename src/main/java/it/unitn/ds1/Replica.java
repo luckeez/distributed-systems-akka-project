@@ -308,15 +308,15 @@ public class Replica extends AbstractActor {
     for (Messages.Update update : knownPendingUpdates) {
       log.info("Coordinator " + replicaId + " re-broadcasting pending update " + update.updateId +
           " value " + update.value);
-      Messages.Update newUpdate = new Messages.Update(new Messages.UpdateId(currentEpoch, currentSequenceNumber),
-          update.value, update.requestInfo);
-      pendingAcks.put(newUpdate.updateId, 0);
-      pendingUpdates.put(newUpdate.updateId, newUpdate);
-      broadcast(newUpdate, null);
+      if (!this.updateHistory.contains(update)) {
+        Messages.Update newUpdate = new Messages.Update(new Messages.UpdateId(currentEpoch, currentSequenceNumber),
+            update.value, update.requestInfo);
+        pendingAcks.put(newUpdate.updateId, 0);
+        pendingUpdates.put(newUpdate.updateId, newUpdate);
+        broadcast(newUpdate, null);
+      }
     }
-
     electionInProgress = false;
-
   }
 
   private void forwardToCoordinator(Serializable msg) {
