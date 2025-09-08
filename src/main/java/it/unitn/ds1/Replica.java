@@ -68,6 +68,7 @@ public class Replica extends AbstractActor {
   public void preStart() {
     if (isCoordinator) {
 
+      getContext().become(coordinatoor());
       scheduleHeartBeat();
       scheduleReplicaTimeouts();
     }
@@ -79,6 +80,25 @@ public class Replica extends AbstractActor {
   final AbstractActor.Receive crashed() {
     return receiveBuilder()
         .matchAny(msg -> {
+        })
+        .build();
+  }
+
+  final AbstractActor.Receive coordinatoor() {
+    return receiveBuilder()
+        .match(Messages.Initialize.class, this::onInitialize)
+        .match(Messages.ReadRequest.class, this::onReadRequest)
+        .match(Messages.WriteRequest.class, this::onWriteRequest)
+        .match(Messages.Ack.class, this::onAck)
+        .match(Messages.HeartBeatAck.class, this::onHeartBeatAck)
+        .match(Messages.Crash.class, this::onCrash)
+        .match(Messages.GetState.class, this::onGetState)
+        .match(Messages.Timeout.class, this::onTimeout)
+        .match(Messages.ReplicaTimeout.class, this::onReplicaTimeout)
+        .match(Messages.SetCrashPoint.class, this::onSetCrashPoint)
+        .match(Messages.Crash.class, this::onCrash)
+        .matchAny(msg -> {
+          log.info("Coordinator cannot process messages of normal replicas");
         })
         .build();
   }
@@ -95,13 +115,10 @@ public class Replica extends AbstractActor {
         .match(Messages.ReadRequest.class, this::onReadRequest)
         .match(Messages.WriteRequest.class, this::onWriteRequest)
         .match(Messages.Update.class, this::onUpdate)
-        .match(Messages.Ack.class, this::onAck)
         .match(Messages.WriteOk.class, this::onWriteOk)
         .match(Messages.HeartBeat.class, this::onHeartBeat)
-        .match(Messages.HeartBeatAck.class, this::onHeartBeatAck)
-        .match(Messages.ReplicaTimeout.class, this::onReplicaTimeout)
-        .match(Messages.DetectedReplicaFailure.class, this::onDetectedReplicaFailure)
         .match(Messages.HeartBeatTimeout.class, this::onHeartBeatTimeout)
+        .match(Messages.DetectedReplicaFailure.class, this::onDetectedReplicaFailure)
         .match(Messages.Election.class, this::onElection)
         .match(Messages.Timeout.class, this::onTimeout)
         .match(Messages.Synchronization.class, this::onSynchronization)
@@ -115,7 +132,7 @@ public class Replica extends AbstractActor {
   // HELPERS
 
   private boolean shouldCrash(Messages.CrashPoint point) {
-    if (crashed || point == null || crashPoint != point || replicas.size() <= quorumSize) {
+    if (this.crashed || point == null || crashPoint != point || replicas.size() <= quorumSize) {
       return false;
     }
     int currentCount = operationCounts.get(point);
@@ -125,13 +142,17 @@ public class Replica extends AbstractActor {
       log.info(Colors.RED +
           "Replica " + replicaId + " crashing at " + point + " after " + currentCount + " operations"
           + Colors.RESET);
-      crashed = true;
-      cancelTimeouts();
-      crashed();
+      crash();
       return true;
     }
 
     return false;
+  }
+
+  private void crash() {
+    this.crashed = true;
+    cancelTimeouts();
+    getContext().become(crashed());
   }
 
   private void introduceNetworkDelay() {
@@ -262,6 +283,9 @@ public class Replica extends AbstractActor {
   private void becomeCoordinator(Set<Messages.Update> knownPendingUpdates) {
     if (isCoordinator)
       return;
+
+    getContext().become(coordinatoor());
+
     log.info(Colors.GREEN + "Replica " + replicaId + " becoming the new Coordinator" + Colors.RESET);
     if (shouldCrash(Messages.CrashPoint.BEFORE_SYNCHRONIZATION))
       return;
@@ -427,8 +451,10 @@ public class Replica extends AbstractActor {
   }
 
   private void onUpdate(Messages.Update msg) {
-    if (crashed)
-      return;
+
+    if (updateTimeout != null) {
+      updateTimeout.cancel();
+    }
 
     log.info(Colors.CYAN + "Replica " + replicaId + " received update " + msg.updateId + " value " + msg.value +
         Colors.RESET);
@@ -447,9 +473,6 @@ public class Replica extends AbstractActor {
   }
 
   private void onAck(Messages.Ack msg) {
-    if (crashed || !isCoordinator)
-      return;
-
     if (pendingAcks.containsKey(msg.updateId)) {
       int currentAcks = pendingAcks.get(msg.updateId);
       pendingAcks.put(msg.updateId, currentAcks + 1);
@@ -483,8 +506,6 @@ public class Replica extends AbstractActor {
   }
 
   private void onWriteOk(Messages.WriteOk msg) {
-    if (crashed)
-      return;
 
     Messages.Update update = pendingUpdates.get(msg.updateId);
     if (update != null) {
@@ -502,24 +523,17 @@ public class Replica extends AbstractActor {
   }
 
   private void onHeartBeat(Messages.HeartBeat msg) {
-    if (crashed)
-      return;
     resetHeartBeatTimeout();
     introduceNetworkDelay();
     getSender().tell(new Messages.HeartBeatAck(replicaId), getSelf());
   }
 
   private void onHeartBeatAck(Messages.HeartBeatAck msg) {
-    if (crashed || !isCoordinator)
-      return;
     String name = "Replica" + msg.replicaId;
     resetReplicaTimeout(name);
   }
 
   private void onHeartBeatTimeout(Messages.HeartBeatTimeout msg) {
-    if (crashed || isCoordinator)
-      return;
-
     log.info(Colors.RED + "Replica " + replicaId + " detected coordinator failure of replica " + coordinatorId +
         Colors.RESET);
 
@@ -531,8 +545,6 @@ public class Replica extends AbstractActor {
   }
 
   private void onReplicaTimeout(Messages.ReplicaTimeout msg) {
-    if (crashed || !isCoordinator)
-      return;
 
     log.warning(Colors.RED + "Coordinator " + replicaId + " detected failure of replica " + msg.replicaId +
         Colors.RESET);
@@ -545,21 +557,16 @@ public class Replica extends AbstractActor {
   }
 
   private void onTimeout(Messages.Timeout msg) {
-    if (crashed)
-      return;
     if (isCoordinator) {
       log.info("Coordinator " + replicaId + " timeout waiting for acks");
       // TODO: think about what to do if the coordinator times out waiting for ACKs
     } else {
-      log.info("Replica " + replicaId + " timeout waiting for WRITEOK, starting eletion process...");
+      log.info("Replica " + replicaId + " timeout waiting for update message, starting eletion process...");
       startElection();
     }
   }
 
   private void onDetectedReplicaFailure(Messages.DetectedReplicaFailure msg) {
-    if (crashed)
-      return;
-
     log.warning(Colors.RED +
         "Replica " + replicaId + " received ReplicaFailure message from coordinator, replica" + msg.failedReplicaId
         + " crashed" +
@@ -572,8 +579,6 @@ public class Replica extends AbstractActor {
   }
 
   private void onElection(Messages.Election msg) {
-    if (crashed)
-      return;
     if (shouldCrash(Messages.CrashPoint.DURING_ELECTION))
       // TODO: think how to on crashes during election
       return;
@@ -610,8 +615,6 @@ public class Replica extends AbstractActor {
   }
 
   private void onSynchronization(Messages.Synchronization msg) {
-    if (crashed)
-      return;
     log.info("Replica " + replicaId + " received synchronization message from new coordinator " + msg.newCoordinatorId);
     coordinatorId = msg.newCoordinatorId;
     isCoordinator = (replicaId == coordinatorId);
@@ -630,12 +633,8 @@ public class Replica extends AbstractActor {
   }
 
   private void onCrash(Messages.Crash msg) {
-    if (crashed)
-      return;
-    crashed = true;
-    cancelTimeouts();
     log.info(Colors.RED + "Replica " + replicaId + " crashing now!" + Colors.RESET);
-    crashed();
+    crash();
   }
 
   private void onSetCrashPoint(Messages.SetCrashPoint msg) {
@@ -646,8 +645,6 @@ public class Replica extends AbstractActor {
   }
 
   private void onGetState(Messages.GetState msg) {
-    if (crashed)
-      return;
     String status = String.format(
         "Replica %d | Coordinator: %b | Epoch: %d | SeqNum: %d | Value: %d | LastUpdateId: %s | ElectionInProgress: %b | Crashed: %b, GroupSize: %d",
         replicaId, isCoordinator, currentEpoch, currentSequenceNumber, currentValue,
@@ -658,8 +655,6 @@ public class Replica extends AbstractActor {
   }
 
   private void onNewCoordinator(Messages.NewCoordinator msg) {
-    if (crashed)
-      return;
     if (msg.newCoordinatorId == replicaId) {
       becomeCoordinator(msg.knownUpdates);
       return;
