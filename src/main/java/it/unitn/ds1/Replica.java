@@ -389,6 +389,16 @@ public class Replica extends AbstractActor {
     getNextReplica().tell(msg, getSelf());
   }
 
+  private void tellToReplica(Serializable msg, int replicaId) {
+    for (ActorRef replica : this.replicas) {
+      if (replica.path().name().equals("Replica" + replicaId)) {
+        introduceNetworkDelay();
+        replica.tell(msg, getSelf());
+        return;
+      }
+    }
+  }
+
   private void applyUpdates(List<Messages.Update> knownUpdates) {
     for (Messages.Update update : knownUpdates) {
       if (!updateHistory.contains(update)) {
@@ -588,7 +598,7 @@ public class Replica extends AbstractActor {
     // Start election
     if (!electionInProgress) {
         getContext().getSystem().scheduler().scheduleOnce(
-            Duration.create(replicaId * 50, TimeUnit.MILLISECONDS),
+            Duration.create(replicaId * 80, TimeUnit.MILLISECONDS),
             getSelf(),
             new Messages.StartElection(),
             getContext().getDispatcher(),
@@ -635,7 +645,7 @@ public class Replica extends AbstractActor {
 
   private void onDetectedReplicaFailure(Messages.DetectedReplicaFailure msg) {
     log.warning(Colors.RED +
-        "Replica " + replicaId + " received ReplicaFailure message from coordinator, replica" + msg.failedReplicaId
+        "Replica " + replicaId + " received ReplicaFailure message, replica" + msg.failedReplicaId
         + " crashed" +
         Colors.RESET);
 
@@ -663,13 +673,17 @@ public class Replica extends AbstractActor {
     if (msg.initiatorId == replicaId) {
       if (replicaId == msg.bestCoordinator) {
         becomeCoordinator(msg.knownPendingUpdates);
-        return;
-      } else {
-        log.info(Colors.BLUE + "Replica " + replicaId + " forwarding NewCoordinator message for replica " +
-            msg.bestCoordinator + Colors.RESET);
-        forwardToNextReplica(new Messages.NewCoordinator(msg.bestCoordinator, msg.knownPendingUpdates));
-        return;
       }
+      // } else {
+      //   log.info(Colors.BLUE + "Replica " + replicaId + " forwarding NewCoordinator message for replica " +
+      //       msg.bestCoordinator + Colors.RESET);
+      //   forwardToNextReplica(new Messages.NewCoordinator(msg.bestCoordinator, msg.knownPendingUpdates));
+      //   return;
+      // }
+      log.info(Colors.BLUE + "Replica " + replicaId + " telling replica " +
+          msg.bestCoordinator + "to be the new coordinator" + Colors.RESET);
+      tellToReplica(new Messages.NewCoordinator(msg.bestCoordinator, msg.knownPendingUpdates), msg.bestCoordinator);
+      return;
     }
 
     Messages.Update myLastUpdate = getLastKnownUpdate();
@@ -679,19 +693,11 @@ public class Replica extends AbstractActor {
     knownPendingUpdates.addAll(pendingUpdates.values());
     if (myLastUpdateId.compareTo(msg.bestUpdateId) > 0 ||
         (myLastUpdateId.compareTo(msg.bestUpdateId) == 0 && replicaId > msg.bestCoordinator)) {
-      Messages.Election newMsg = new Messages.Election(
-          msg.initiatorId,
-          replicaId,
-          myLastUpdateId,
-          knownPendingUpdates);
+      Messages.Election newMsg = new Messages.Election(msg.initiatorId,replicaId,myLastUpdateId,knownPendingUpdates);
       setElectionAckTimeout(newMsg);
       forwardToNextReplica(newMsg);
     } else {
-      Messages.Election newMsg = new Messages.Election(
-          msg.initiatorId,
-          msg.bestCoordinator,
-          msg.bestUpdateId,
-          knownPendingUpdates);
+      Messages.Election newMsg = new Messages.Election(msg.initiatorId,msg.bestCoordinator,msg.bestUpdateId,knownPendingUpdates);
       setElectionAckTimeout(newMsg);
       forwardToNextReplica(newMsg);
     }
@@ -741,10 +747,14 @@ public class Replica extends AbstractActor {
     if (msg.newCoordinatorId == replicaId) {
       becomeCoordinator(msg.knownUpdates);
       return;
-    } else {
-      log.info(Colors.BLUE + "Replica " + replicaId + " forwarding NewCoordinator message for replica " +
-          msg.newCoordinatorId + Colors.RESET);
-      forwardToNextReplica(msg);
     }
+    // NOTE: Addirittura fare messaggio collegato direttamente con la funzione becomeCoordinator ??
+
+
+    // } else {
+    //   log.info(Colors.BLUE + "Replica " + replicaId + " forwarding NewCoordinator message for replica " +
+    //       msg.newCoordinatorId + Colors.RESET);
+    //   forwardToNextReplica(msg);
+    // }
   }
 }
