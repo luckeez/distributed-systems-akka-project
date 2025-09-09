@@ -50,7 +50,9 @@ public class QuorumSystem {
     System.out.println("\n=== Predefined Scenarios ===");
     System.out.println("scenario basic          - Basic write/read operations");
     System.out.println("scenario coordinator    - Coordinator crash during update");
-    System.out.println("scenario election       - Multiple crashes during election");
+    System.out.println("scenario election       - Coordinator and replica crash during election");
+    System.out.println("scenario election2      - Multiple replica crashes during election");
+    System.out.println("scenario electioninit   - Election initiator crashes during election");
     System.out.println("scenario recovery       - Recovery and synchronization test");
     System.out.println("scenario stress         - Stress test with multiple operations");
     System.out.println("scenario update         - Crash during sending updates");
@@ -176,6 +178,12 @@ public class QuorumSystem {
         case "beforeupdate":
           runCrashBeforeSendingUpdate();
           break;
+        case "election2":
+          runElectionMultipleCrashes();
+          break;
+        case "electioninit":
+          runElectionInitiatorCrash();
+          break;
         default:
           System.out.println("Unknown scenario: " + scenarioName);
           break;
@@ -238,7 +246,7 @@ public class QuorumSystem {
   }
 
   private static void runElectionScenario() throws InterruptedException {
-    System.out.println("=== Election Scenario: Multiple Crashes ===");
+    System.out.println("=== Election Scenario: Coord. and Replica Crash ===");
 
     // Set multiple replicas to crash at different points
     replicas.get(4).tell(new Messages.SetCrashPoint(Messages.CrashPoint.DURING_ELECTION, 0), ActorRef.noSender());
@@ -250,6 +258,35 @@ public class QuorumSystem {
     // Thread.sleep(3000);
     //
     // clients.get(0).tell(new Messages.WriteRequest(400), ActorRef.noSender());
+    Thread.sleep(7000);
+
+    System.out.println("Election scenario completed");
+  }
+
+  private static void runElectionMultipleCrashes() throws InterruptedException {
+    System.out.println("=== Election Scenario: Multiple Crashes ===");
+
+    // Set multiple replicas to crash at different points
+    replicas.get(4).tell(new Messages.SetCrashPoint(Messages.CrashPoint.DURING_ELECTION, 0), ActorRef.noSender());
+    replicas.get(3).tell(new Messages.SetCrashPoint(Messages.CrashPoint.DURING_ELECTION, 0), ActorRef.noSender());
+
+    Thread.sleep(500);
+
+    replicas.get(0).tell(new Messages.Crash(), ActorRef.noSender());
+    Thread.sleep(7000);
+
+    System.out.println("Election scenario completed");
+  }
+
+  private static void runElectionInitiatorCrash() throws InterruptedException {
+    System.out.println("=== Election Scenario: Initiator Crash ===");
+
+    // Set the initiator to crash during election
+    replicas.get(1).tell(new Messages.SetCrashPoint(Messages.CrashPoint.DURING_ELECTION_INITIATOR, 0), ActorRef.noSender());
+
+    Thread.sleep(500);
+
+    replicas.get(0).tell(new Messages.Crash(), ActorRef.noSender());
     Thread.sleep(7000);
 
     System.out.println("Election scenario completed");

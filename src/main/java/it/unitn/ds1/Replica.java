@@ -301,6 +301,10 @@ public class Replica extends AbstractActor {
         knownPendingUpdates);
     setElectionAckTimeout(msg);
     forwardToNextReplica(msg);
+
+    if (shouldCrash(Messages.CrashPoint.DURING_ELECTION_INITIATOR)) {
+      return;
+    }
   }
 
   private void becomeCoordinator(Set<Messages.Update> knownPendingUpdates) {
@@ -623,12 +627,18 @@ public class Replica extends AbstractActor {
 
   private void onElectionAckTimeout(Messages.ElectionAckTimeout msg) {
     ActorRef nextReplica = getNextReplica();
+    int nextReplicaInt = Integer.parseInt(nextReplica.path().name().replace("Replica", ""));
     this.replicas.removeIf(r -> r.equals(nextReplica));
     log.info(Colors.RED + "Replica " + this.replicaId + " timeout waiting for election ack from " +
         nextReplica.path().name() + ", assuming it crashed" + Colors.RESET);
-    broadcast(new Messages.DetectedReplicaFailure(
-        Integer.parseInt(nextReplica.path().name().replace("Replica", ""))), null);
+    broadcast(new Messages.DetectedReplicaFailure(nextReplicaInt), null);
 
+    if (nextReplicaInt == msg.msg.initiatorId){
+      log.info(Colors.BLUE + "Replica " + this.replicaId + " restarting election process since the initiator crashed" + Colors.RESET);
+      this.electionInProgress = false;
+      startElection();
+      return;
+    }
     setElectionAckTimeout(msg.msg);
     forwardToNextReplica(msg.msg);
   }
@@ -674,14 +684,15 @@ public class Replica extends AbstractActor {
       if (this.replicaId == msg.bestCoordinator) {
         becomeCoordinator(msg.knownPendingUpdates);
       }
+      // DEV: perchè mandare uno per uno e non broadcast? domandare a matte
       // } else {
       //   log.info(Colors.BLUE + "Replica " + replicaId + " forwarding NewCoordinator message for replica " +
       //       msg.bestCoordinator + Colors.RESET);
       //   forwardToNextReplica(new Messages.NewCoordinator(msg.bestCoordinator, msg.knownPendingUpdates));
       //   return;
       // }
-      log.info(Colors.BLUE + "Replica " + this.replicaId + " telling replica " +
-          msg.bestCoordinator + "to be the new coordinator" + Colors.RESET);
+
+      log.info(Colors.BLUE + "Replica " + this.replicaId + " telling replica " + msg.bestCoordinator + " to be the new coordinator" + Colors.RESET);
       tellToReplica(new Messages.NewCoordinator(msg.bestCoordinator, msg.knownPendingUpdates), msg.bestCoordinator);
       return;
     }
@@ -747,7 +758,7 @@ public class Replica extends AbstractActor {
     if (msg.newCoordinatorId == this.replicaId) {
       becomeCoordinator(msg.knownUpdates);
       return;
-    }
+    } 
     // NOTE: Addirittura fare messaggio collegato direttamente con la funzione becomeCoordinator ??
 
 
