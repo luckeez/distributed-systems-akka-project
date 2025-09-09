@@ -32,7 +32,7 @@ public class Client extends AbstractActor {
 
   @Override
   public void preStart() {
-    log.info("Client " + clientId + " started successfully");
+    log.info("Client " + this.clientId + " started successfully");
   }
 
   @Override
@@ -55,34 +55,34 @@ public class Client extends AbstractActor {
 
   private void scheduleRequestTimeout(Messages.WriteRequest msg) {
 
-    ActorRef replica = replicas.get(ThreadLocalRandom.current().nextInt(replicas.size()));
+    ActorRef replica = this.replicas.get(ThreadLocalRandom.current().nextInt(this.replicas.size()));
     Cancellable timeout = getContext().system().scheduler().scheduleOnce(
         Duration.create(5, TimeUnit.SECONDS),
         replica,
         msg,
         getContext().system().dispatcher(),
         getSelf());
-    pendingRequestsTimeouts.put(msg.requestInfo, timeout);
+    this.pendingRequestsTimeouts.put(msg.requestInfo, timeout);
 
   }
 
   private void cancelRequestTimeout(Messages.RequestInfo requestInfo) {
-    Cancellable timeout = pendingRequestsTimeouts.remove(requestInfo);
+    Cancellable timeout = this.pendingRequestsTimeouts.remove(requestInfo);
     if (timeout != null) {
       timeout.cancel();
     }
   }
 
   private void onReadRequest(Messages.ReadRequest msg) {
-    ActorRef replica = replicas.get(ThreadLocalRandom.current().nextInt(replicas.size()));
-    log.info("Client " + clientId + " read request to " + replica.path().name());
+    ActorRef replica = this.replicas.get(ThreadLocalRandom.current().nextInt(this.replicas.size()));
+    log.info("Client " + this.clientId + " read request to " + replica.path().name());
     introduceNetworkDelay();
     replica.tell(msg, getSelf());
   }
 
   private void onWriteRequest(Messages.WriteRequest msg) {
-    ActorRef replica = replicas.get(ThreadLocalRandom.current().nextInt(replicas.size()));
-    log.info("Client " + clientId + " write request with value " + msg.value + " to " + replica.path().name());
+    ActorRef replica = this.replicas.get(ThreadLocalRandom.current().nextInt(this.replicas.size()));
+    log.info("Client " + this.clientId + " write request with value " + msg.value + " to " + replica.path().name());
     while (!pendingRequestsTimeouts.isEmpty()) {
       // Wait for previous requests to complete
       try {
@@ -93,19 +93,19 @@ public class Client extends AbstractActor {
     }
     introduceNetworkDelay();
     Messages.WriteRequest req = new Messages.WriteRequest(msg.value,
-        new Messages.RequestInfo(getSelf(), requestCounter++));
+        new Messages.RequestInfo(getSelf(), this.requestCounter++));
     scheduleRequestTimeout(req);
     replica.tell(req, getSelf());
 
   }
 
   private void onReadResponse(Messages.ReadResponse msg) {
-    log.info("Client " + clientId + " received read response with value " + msg.value + " from "
+    log.info("Client " + this.clientId + " received read response with value " + msg.value + " from "
         + getSender().path().name());
   }
 
   private void onWriteResponse(Messages.WriteResponse msg) {
-    log.info("Client " + clientId + " recieved write response from " + getSender().path().name() + " with outcome: "
+    log.info("Client " + this.clientId + " recieved write response from " + getSender().path().name() + " with outcome: "
         + (msg.success ? "SUCCESS" : "FAILED"));
     cancelRequestTimeout(msg.requestInfo);
   }
