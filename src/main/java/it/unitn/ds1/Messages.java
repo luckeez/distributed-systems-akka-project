@@ -230,6 +230,9 @@ public class Messages {
     }
   }
 
+  public static class StartElection implements Serializable {
+  }
+
   public static class Timeout implements Serializable {
   }
 

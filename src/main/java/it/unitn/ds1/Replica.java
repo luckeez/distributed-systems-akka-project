@@ -129,6 +129,7 @@ public class Replica extends AbstractActor {
         .match(Messages.NewCoordinator.class, this::onNewCoordinator)
         .match(Messages.ElectionAck.class, this::onElectionAck)
         .match(Messages.ElectionAckTimeout.class, this::onElectionAckTimeout)
+        .match(Messages.StartElection.class, msg -> startElection())
         .build();
   }
 
@@ -246,7 +247,7 @@ public class Replica extends AbstractActor {
     }
 
     electionAckTimeout = getContext().getSystem().scheduler().scheduleOnce(
-        Duration.create(2, TimeUnit.SECONDS),
+        Duration.create(500, TimeUnit.MILLISECONDS),
         getSelf(),
         new Messages.ElectionAckTimeout(msg),
         getContext().getDispatcher(),
@@ -286,7 +287,7 @@ public class Replica extends AbstractActor {
   }
 
   private void startElection() {
-    if (electionInProgress)
+    if (electionInProgress || shouldCrash(Messages.CrashPoint.DURING_ELECTION))
       return;
     electionInProgress = true;
     replicas.removeIf(r -> r.path().name().equals("Replica" + coordinatorId));
@@ -586,8 +587,15 @@ public class Replica extends AbstractActor {
 
     // Start election
     if (!electionInProgress) {
-      startElection();
+        getContext().getSystem().scheduler().scheduleOnce(
+            Duration.create(replicaId * 50, TimeUnit.MILLISECONDS),
+            getSelf(),
+            new Messages.StartElection(),
+            getContext().getDispatcher(),
+            getSelf()
+        );
       // TODO: election should finish within a timeout, otherwise restart it
+      // FIX: election is enough robust to handle this case
     }
   }
 
@@ -606,8 +614,10 @@ public class Replica extends AbstractActor {
   private void onElectionAckTimeout(Messages.ElectionAckTimeout msg) {
     ActorRef nextReplica = getNextReplica();
     this.replicas.removeIf(r -> r.equals(nextReplica));
-    log.info(Colors.RED + "Replica " + replicaId + " timeout waiting for election ack from " +
+    log.info(Colors.RED + "Replica " + this.replicaId + " timeout waiting for election ack from " +
         nextReplica.path().name() + ", assuming it crashed" + Colors.RESET);
+    broadcast(new Messages.DetectedReplicaFailure(
+        Integer.parseInt(nextReplica.path().name().replace("Replica", ""))), null);
 
     setElectionAckTimeout(msg.msg);
     forwardToNextReplica(msg.msg);
