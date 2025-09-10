@@ -126,10 +126,11 @@ public class Replica extends AbstractActor {
         .match(Messages.Crash.class, this::onCrash)
         .match(Messages.SetCrashPoint.class, this::onSetCrashPoint)
         .match(Messages.GetState.class, this::onGetState)
-        .match(Messages.NewCoordinator.class, this::onNewCoordinator)
+        // .match(Messages.NewCoordinator.class, this::onNewCoordinator)
         .match(Messages.ElectionAck.class, this::onElectionAck)
         .match(Messages.ElectionAckTimeout.class, this::onElectionAckTimeout)
         .match(Messages.StartElection.class, msg -> startElection())
+        .match(Messages.NewCoordinator.class, msg -> becomeCoordinator(msg.knownUpdates))
         .build();
   }
 
@@ -173,7 +174,7 @@ public class Replica extends AbstractActor {
       String name = replica.path().name();
       if (!replica.equals(getSelf())) {
         resetReplicaTimeout(name);
-        log.info("Coordinator " + this.replicaId + " scheduling timeout for " + name);
+        // log.info("Coordinator " + this.replicaId + " scheduling timeout for " + name); // necessary? 
       } else {
         if (this.replicaTimeouts.get(name) != null) {
           this.replicaTimeouts.get(name).cancel();
@@ -361,7 +362,7 @@ public class Replica extends AbstractActor {
     for (ActorRef replica : this.replicas) {
       if (replica == getSelf())
         continue;
-      if (shouldCrash(this.crashPoint))
+      if (shouldCrash(crashPoint))
         return;
       introduceNetworkDelay();
       replica.tell(msg, getSelf());
@@ -407,7 +408,7 @@ public class Replica extends AbstractActor {
     for (Messages.Update update : knownUpdates) {
       if (!this.updateHistory.contains(update)) {
         this.updateHistory.add(update);
-        log.info("Replica " + this.replicaId + " applied update " + update.updateId + " value " + update.value);
+        log.info(Colors.GREEN + "Replica " + this.replicaId + " applied update " + update.updateId + " value " + update.value + Colors.RESET);
       }
     }
 
@@ -488,6 +489,8 @@ public class Replica extends AbstractActor {
 
       broadcast(update, Messages.CrashPoint.DURING_SENDING_UPDATE);
 
+      log.info("Coordinator " + this.replicaId + " broadcasted update " + updateId + " value " + update.value);
+
       if (shouldCrash(Messages.CrashPoint.AFTER_SENDING_UPDATE))
         return;
     } else {
@@ -497,12 +500,12 @@ public class Replica extends AbstractActor {
     if (this.updateTimeout != null) {
       this.updateTimeout.cancel();
     }
-    this.updateTimeout = getContext().getSystem().scheduler().scheduleOnce(
-        Duration.create(2, TimeUnit.SECONDS),
-        getSelf(),
-        new Messages.Timeout(),
-        getContext().getDispatcher(),
-        getSelf());
+    // this.updateTimeout = getContext().getSystem().scheduler().scheduleOnce(
+    //     Duration.create(2, TimeUnit.SECONDS),
+    //     getSelf(),
+    //     new Messages.Timeout(),
+    //     getContext().getDispatcher(),
+    //     getSelf());
 
   }
 
@@ -684,13 +687,6 @@ public class Replica extends AbstractActor {
       if (this.replicaId == msg.bestCoordinator) {
         becomeCoordinator(msg.knownPendingUpdates);
       }
-      // DEV: perchè mandare uno per uno e non broadcast? domandare a matte
-      // } else {
-      //   log.info(Colors.BLUE + "Replica " + replicaId + " forwarding NewCoordinator message for replica " +
-      //       msg.bestCoordinator + Colors.RESET);
-      //   forwardToNextReplica(new Messages.NewCoordinator(msg.bestCoordinator, msg.knownPendingUpdates));
-      //   return;
-      // }
 
       log.info(Colors.BLUE + "Replica " + this.replicaId + " telling replica " + msg.bestCoordinator + " to be the new coordinator" + Colors.RESET);
       tellToReplica(new Messages.NewCoordinator(msg.bestCoordinator, msg.knownPendingUpdates), msg.bestCoordinator);
@@ -760,12 +756,5 @@ public class Replica extends AbstractActor {
       return;
     } 
     // NOTE: Addirittura fare messaggio collegato direttamente con la funzione becomeCoordinator ??
-
-
-    // } else {
-    //   log.info(Colors.BLUE + "Replica " + replicaId + " forwarding NewCoordinator message for replica " +
-    //       msg.newCoordinatorId + Colors.RESET);
-    //   forwardToNextReplica(msg);
-    // }
   }
 }

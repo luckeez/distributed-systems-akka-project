@@ -53,10 +53,11 @@ public class QuorumSystem {
     System.out.println("scenario election       - Coordinator and replica crash during election");
     System.out.println("scenario election2      - Multiple replica crashes during election");
     System.out.println("scenario electioninit   - Election initiator crashes during election");
-    System.out.println("scenario recovery       - Recovery and synchronization test");
-    System.out.println("scenario stress         - Stress test with multiple operations");
     System.out.println("scenario update         - Crash during sending updates");
     System.out.println("scenario beforeupdate   - Crash before sending updates");
+    System.out.println("scenario afterupdate    - Crash after sending updates");
+    System.out.println("scenario recovery       - Recovery and synchronization test");
+    System.out.println("scenario stress         - Stress test with multiple operations");
   }
 
   private static void printStatus() {
@@ -178,12 +179,16 @@ public class QuorumSystem {
         case "beforeupdate":
           runCrashBeforeSendingUpdate();
           break;
+        case "afterupdate":
+          runCrashAfterSendingUpdates();
+          break;
         case "election2":
           runElectionMultipleCrashes();
           break;
         case "electioninit":
           runElectionInitiatorCrash();
           break;
+
         default:
           System.out.println("Unknown scenario: " + scenarioName);
           break;
@@ -194,6 +199,9 @@ public class QuorumSystem {
     }
   }
 
+// ===================== SCENARIOS =====================
+
+// --------------------- BASIC scenarios --------------------
   private static void runBasicScenario() throws InterruptedException {
     System.out.println("=== Basic Scenario: Normal Operations ===");
 
@@ -230,34 +238,15 @@ public class QuorumSystem {
     System.out.println("Coordinator crash scenario completed");
   }
 
-  private static void runCrashBeforeSendingUpdate() throws InterruptedException {
-    System.out.println("=== Crash Before Sending Update Scenario ===");
-
-    // Set coordinator to crash before sending updates
-    replicas.get(0).tell(new Messages.SetCrashPoint(Messages.CrashPoint.BEFORE_SENDING_UPDATE, 0), ActorRef.noSender());
-    Thread.sleep(500);
-
-    System.out.println("Sending write request that will trigger crash before sending updates...");
-    clients.get(0).tell(new Messages.WriteRequest(150), ActorRef.noSender());
-    Thread.sleep(7000);
-
-    printStatus();
-    System.out.println("Crash before sending update scenario completed");
-  }
-
+// --------------------- ELECTION scenarios --------------------
   private static void runElectionScenario() throws InterruptedException {
     System.out.println("=== Election Scenario: Coord. and Replica Crash ===");
 
     // Set multiple replicas to crash at different points
     replicas.get(4).tell(new Messages.SetCrashPoint(Messages.CrashPoint.DURING_ELECTION, 0), ActorRef.noSender());
-
     Thread.sleep(500);
 
     replicas.get(0).tell(new Messages.Crash(), ActorRef.noSender());
-    // clients.get(0).tell(new Messages.WriteRequest(300), ActorRef.noSender());
-    // Thread.sleep(3000);
-    //
-    // clients.get(0).tell(new Messages.WriteRequest(400), ActorRef.noSender());
     Thread.sleep(7000);
 
     System.out.println("Election scenario completed");
@@ -266,7 +255,7 @@ public class QuorumSystem {
   private static void runElectionMultipleCrashes() throws InterruptedException {
     System.out.println("=== Election Scenario: Multiple Crashes ===");
 
-    // Set multiple replicas to crash at different points
+    // Set multiple replicas to crash during election
     replicas.get(4).tell(new Messages.SetCrashPoint(Messages.CrashPoint.DURING_ELECTION, 0), ActorRef.noSender());
     replicas.get(3).tell(new Messages.SetCrashPoint(Messages.CrashPoint.DURING_ELECTION, 0), ActorRef.noSender());
 
@@ -292,6 +281,53 @@ public class QuorumSystem {
     System.out.println("Election scenario completed");
   }
 
+// --------------------- UPDATE scenarios --------------------
+  private static void runCrashBeforeSendingUpdate() throws InterruptedException {
+    System.out.println("=== Crash Before Sending Update Scenario ===");
+
+    // Set coordinator to crash before sending updates
+    replicas.get(0).tell(new Messages.SetCrashPoint(Messages.CrashPoint.BEFORE_SENDING_UPDATE, 0), ActorRef.noSender());
+    Thread.sleep(500);
+
+    System.out.println("Sending write request that will trigger crash before sending updates...");
+    clients.get(0).tell(new Messages.WriteRequest(150), ActorRef.noSender());
+    Thread.sleep(7000);
+
+    printStatus();
+    System.out.println("Crash before sending update scenario completed");
+  }
+
+  private static void runCrashDuringSendingUpdates() throws InterruptedException {
+    System.out.println("=== Crash During Sending Updates Scenario ===");
+
+    // Set coordinator to crash during sending updates
+    replicas.get(0).tell(new Messages.SetCrashPoint(Messages.CrashPoint.DURING_SENDING_UPDATE, 3), ActorRef.noSender());
+    Thread.sleep(500);
+
+    System.out.println("Sending write request that will trigger crash during updates...");
+    clients.get(0).tell(new Messages.WriteRequest(800), ActorRef.noSender());
+    Thread.sleep(7000);
+
+    printStatus();
+    System.out.println("Crash during sending updates scenario completed");
+  }
+
+  private static void runCrashAfterSendingUpdates() throws InterruptedException {
+    System.out.println("=== Crash After Sending Updates Scenario ===");
+
+    // Set coordinator to crash during sending updates
+    replicas.get(0).tell(new Messages.SetCrashPoint(Messages.CrashPoint.AFTER_SENDING_UPDATE, 0), ActorRef.noSender());
+    Thread.sleep(500);
+
+    System.out.println("Sending write request that will trigger crash after updates...");
+    clients.get(0).tell(new Messages.WriteRequest(900), ActorRef.noSender());
+    Thread.sleep(7000);
+
+    printStatus();
+    System.out.println("Crash after sending updates scenario completed");
+  }
+
+// --------------------- RECOVERY scenario --------------------
   private static void runRecoveryScenario() throws InterruptedException {
     System.out.println("=== Recovery Scenario: Synchronization Test ===");
 
@@ -316,24 +352,7 @@ public class QuorumSystem {
     System.out.println("Recovery scenario completed");
   }
 
-  private static void runCrashDuringSendingUpdates() throws InterruptedException {
-    System.out.println("=== Crash During Sending Updates Scenario ===");
-
-    // Set coordinator to crash during sending updates
-    replicas.get(0).tell(new Messages.SetCrashPoint(Messages.CrashPoint.DURING_SENDING_UPDATE, 1), ActorRef.noSender());
-    Thread.sleep(500);
-
-    System.out.println("Sending write request that will trigger crash during updates...");
-    clients.get(0).tell(new Messages.WriteRequest(800), ActorRef.noSender());
-    Thread.sleep(5000);
-
-    // System.out.println("Sending another write request to test recovery...");
-    // clients.get(0).tell(new Messages.WriteRequest(900), ActorRef.noSender());
-    // Thread.sleep(2000);
-    printStatus();
-    System.out.println("Crash during sending updates scenario completed");
-  }
-
+// --------------------- STRESS scenario --------------------
   private static void runStressScenario() throws InterruptedException {
     System.out.println("=== Stress Scenario: Multiple Concurrent Operations ===");
 
@@ -355,6 +374,7 @@ public class QuorumSystem {
     System.out.println("Stress scenario completed");
   }
 
+// ==================== SYSTEM RESET =====================
   private static void resetSystem() {
     System.out.println("Resetting system...");
 
@@ -376,7 +396,7 @@ public class QuorumSystem {
 
     System.out.println("System reset completed");
   }
-
+// ==================== MAIN =====================
   public static void main(String[] args) {
     system = ActorSystem.create("QuorumSystem");
     scanner = new Scanner(System.in);
