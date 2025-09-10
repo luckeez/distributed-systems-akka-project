@@ -56,6 +56,8 @@ public class QuorumSystem {
     System.out.println("scenario update         - Crash during sending updates");
     System.out.println("scenario beforeupdate   - Crash before sending updates");
     System.out.println("scenario afterupdate    - Crash after sending updates");
+    System.out.println("scenario writeok        - Crash during sending WriteOK");
+    System.out.println("scenario afterwriteok   - Crash after sending WriteOK");
     System.out.println("scenario recovery       - Recovery and synchronization test");
     System.out.println("scenario stress         - Stress test with multiple operations");
   }
@@ -188,7 +190,12 @@ public class QuorumSystem {
         case "electioninit":
           runElectionInitiatorCrash();
           break;
-
+        case "writeok":
+          runCrashDuringSendingWriteOK();
+          break;
+        case "afterwriteok":
+          runCrashAfterSendingWriteOK();
+          break;
         default:
           System.out.println("Unknown scenario: " + scenarioName);
           break;
@@ -325,6 +332,37 @@ public class QuorumSystem {
 
     printStatus();
     System.out.println("Crash after sending updates scenario completed");
+  }
+
+// --------------------- WRITEOK scenarios --------------------
+private static void runCrashDuringSendingWriteOK() throws InterruptedException {
+    System.out.println("=== Crash Before Sending WriteOK Scenario ===");
+
+    // Set coordinator to crash before sending WriteOK
+    replicas.get(0).tell(new Messages.SetCrashPoint(Messages.CrashPoint.DURING_SENDING_WRITEOK, 3), ActorRef.noSender());
+    Thread.sleep(500);
+
+    System.out.println("Sending write request that will trigger crash during sending WriteOK...");
+    clients.get(0).tell(new Messages.WriteRequest(250), ActorRef.noSender());
+    Thread.sleep(7000);
+
+    printStatus();
+    System.out.println("Crash during sending WriteOK scenario completed");
+  }
+
+  private static void runCrashAfterSendingWriteOK() throws InterruptedException {
+    System.out.println("=== Crash After Sending WriteOK Scenario ===");
+
+    // Set coordinator to crash after sending WriteOK
+    replicas.get(0).tell(new Messages.SetCrashPoint(Messages.CrashPoint.AFTER_SENDING_WRITEOK, 0), ActorRef.noSender());
+    Thread.sleep(500);
+
+    System.out.println("Sending write request that will trigger crash after sending WriteOK...");
+    clients.get(0).tell(new Messages.WriteRequest(350), ActorRef.noSender());
+    Thread.sleep(7000);
+
+    printStatus();
+    System.out.println("Crash after sending WriteOK scenario completed");
   }
 
 // --------------------- RECOVERY scenario --------------------

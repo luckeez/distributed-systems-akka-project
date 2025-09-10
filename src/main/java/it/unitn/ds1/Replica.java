@@ -334,9 +334,8 @@ public class Replica extends AbstractActor {
     scheduleReplicaTimeouts();
 
     for (Messages.Update update : knownPendingUpdates) {
-      log.info("Coordinator " + this.replicaId + " re-broadcasting pending update " + update.updateId +
-          " value " + update.value);
       if (!this.updateHistory.contains(update)) {
+        log.info("Coordinator " + this.replicaId + " re-broadcasting pending update " + update.updateId + " value " + update.value);
         Messages.Update newUpdate = new Messages.Update(new Messages.UpdateId(this.currentEpoch, this.currentSequenceNumber),
             update.value, update.requestInfo);
         this.pendingAcks.put(newUpdate.updateId, 0);
@@ -358,15 +357,16 @@ public class Replica extends AbstractActor {
     }
   }
 
-  private void broadcast(Serializable msg, Messages.CrashPoint crashPoint) {
+  private boolean broadcast(Serializable msg, Messages.CrashPoint crashPoint) {
     for (ActorRef replica : this.replicas) {
       if (replica == getSelf())
         continue;
       if (shouldCrash(crashPoint))
-        return;
+        return true;
       introduceNetworkDelay();
       replica.tell(msg, getSelf());
     }
+    return false;
   }
 
   private boolean isAlive(int replicaId) {
@@ -423,9 +423,9 @@ public class Replica extends AbstractActor {
     this.currentValue = update.value;
     this.currentSequenceNumber++;
     if (this.isCoordinator) {
-      log.info("Coordinator" + this.replicaId + " applied update " + update.updateId + " value " + update.value);
+      log.info(Colors.GREEN + "Coordinator" + this.replicaId + " applied update " + update.updateId + " value " + update.value + Colors.RESET);
     } else {
-      log.info("Replica" + this.replicaId + " applied update " + update.updateId + " value " + update.value);
+      log.info(Colors.GREEN + "Replica" + this.replicaId + " applied update " + update.updateId + " value " + update.value + Colors.RESET);
     }
   }
 
@@ -473,6 +473,7 @@ public class Replica extends AbstractActor {
         introduceNetworkDelay();
         msg.requestInfo.client.tell(new Messages.WriteResponse(true, msg.requestInfo), getSelf());
         log.info("Coordinator " + this.replicaId + " already served request with " + msg.requestInfo.toString());
+        return;
       }
 
       if (shouldCrash(Messages.CrashPoint.BEFORE_SENDING_UPDATE))
@@ -544,14 +545,16 @@ public class Replica extends AbstractActor {
       if (currentAcks + 1 >= quorumSize) {
         log.info("Coordinator " + this.replicaId + " received quorum for update " + msg.updateId);
 
-        if (shouldCrash(Messages.CrashPoint.BEFORE_SENDING_WRITEOK))
-          return;
+        // if (shouldCrash(Messages.CrashPoint.BEFORE_SENDING_WRITEOK))
+        //   return;
 
         Messages.Update update = this.pendingUpdates.get(msg.updateId);
         applyUpdate(update);
         Messages.WriteOk writeOk = new Messages.WriteOk(msg.updateId);
 
-        broadcast(writeOk, null);
+        if(broadcast(writeOk, Messages.CrashPoint.DURING_SENDING_WRITEOK))
+          return;
+        log.info("Coordinator " + this.replicaId + " broadcasted WriteOk for update " + msg.updateId);
 
         if (shouldCrash(Messages.CrashPoint.AFTER_SENDING_WRITEOK))
           return;

@@ -57,7 +57,7 @@ public class Client extends AbstractActor {
 
     ActorRef replica = this.replicas.get(ThreadLocalRandom.current().nextInt(this.replicas.size()));
     Cancellable timeout = getContext().system().scheduler().scheduleOnce(
-        Duration.create(5, TimeUnit.SECONDS),
+        Duration.create(7, TimeUnit.SECONDS),
         replica,
         msg,
         getContext().system().dispatcher(),
@@ -105,7 +105,7 @@ public class Client extends AbstractActor {
   }
 
   private void onWriteResponse(Messages.WriteResponse msg) {
-    log.info("Client " + this.clientId + " recieved write response from " + getSender().path().name() + " with outcome: "
+    log.info("Client " + this.clientId + " received write response from " + getSender().path().name() + " with outcome: "
         + (msg.success ? "SUCCESS" : "FAILED"));
     cancelRequestTimeout(msg.requestInfo);
   }
