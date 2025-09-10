@@ -19,8 +19,8 @@ public class Messages {
     AFTER_RECEIVING_WRITEOK, // ok
     DURING_ELECTION, // ok
     DURING_ELECTION_INITIATOR, // ok
-    BEFORE_SYNCHRONIZATION,
-    AFTER_SYNCHRONIZATION;
+    BEFORE_SYNCHRONIZATION, // ok
+    AFTER_SYNCHRONIZATION; // ok
   }
 
   public static class Initialize implements Serializable {

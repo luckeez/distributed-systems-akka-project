@@ -41,6 +41,7 @@ public class Replica extends AbstractActor {
   private Cancellable heartBeatTimeout;
   private Map<String, Cancellable> replicaTimeouts;
   private Cancellable electionAckTimeout;
+  private Cancellable electionTimeout;
 
   private boolean electionInProgress = false;
 
@@ -126,7 +127,6 @@ public class Replica extends AbstractActor {
         .match(Messages.Crash.class, this::onCrash)
         .match(Messages.SetCrashPoint.class, this::onSetCrashPoint)
         .match(Messages.GetState.class, this::onGetState)
-        // .match(Messages.NewCoordinator.class, this::onNewCoordinator)
         .match(Messages.ElectionAck.class, this::onElectionAck)
         .match(Messages.ElectionAckTimeout.class, this::onElectionAckTimeout)
         .match(Messages.StartElection.class, msg -> startElection())
@@ -197,6 +197,12 @@ public class Replica extends AbstractActor {
           getSelf());
       // Store the timeout for the replica
       this.replicaTimeouts.put(name, timeout);
+    }
+  }
+
+  private void resetElectionTimeout() {
+    if (this.electionTimeout != null) {
+      this.electionTimeout.cancel();
     }
   }
 
@@ -314,9 +320,10 @@ public class Replica extends AbstractActor {
 
     getContext().become(coordinator());
 
-    log.info(Colors.GREEN + "Replica " + this.replicaId + " becoming the new Coordinator" + Colors.RESET);
     if (shouldCrash(Messages.CrashPoint.BEFORE_SYNCHRONIZATION))
       return;
+    log.info(Colors.GREEN + "Replica " + this.replicaId + " becoming the new Coordinator" + Colors.RESET);
+
     this.isCoordinator = true;
     this.coordinatorId = replicaId;
     this.currentEpoch++;
@@ -344,6 +351,9 @@ public class Replica extends AbstractActor {
       }
     }
     this.electionInProgress = false;
+
+    if (shouldCrash(Messages.CrashPoint.AFTER_SYNCHRONIZATION))
+      return;
   }
 
   private void forwardToCoordinator(Serializable msg) {
@@ -607,7 +617,8 @@ public class Replica extends AbstractActor {
   }
 
   private void onHeartBeatTimeout(Messages.HeartBeatTimeout msg) {
-    log.info(Colors.RED + "Replica " + this.replicaId + " detected coordinator failure of replica " + coordinatorId +
+    this.electionInProgress = false;
+    log.info(Colors.RED + "Replica " + this.replicaId + " detected coordinator failure of replica " + this.coordinatorId +
         Colors.RESET);
 
     // Start election
@@ -619,9 +630,15 @@ public class Replica extends AbstractActor {
             getContext().getDispatcher(),
             getSelf()
         );
-      // TODO: election should finish within a timeout, otherwise restart it
-      // FIX: election is enough robust to handle this case
     }
+    // Timeout to check if the election was succesful
+    this.electionTimeout = getContext().getSystem().scheduler().scheduleOnce(
+        Duration.create(10, TimeUnit.SECONDS),
+        getSelf(),
+        new Messages.HeartBeatTimeout(),
+        getContext().getDispatcher(),
+        getSelf()
+    );
   }
 
   private void onReplicaTimeout(Messages.ReplicaTimeout msg) {
@@ -726,6 +743,7 @@ public class Replica extends AbstractActor {
     this.currentSequenceNumber = 0;
     this.electionInProgress = false;
     this.pendingUpdates.clear();
+    resetElectionTimeout();
 
     // Apply missed updates
     applyUpdates(msg.missedUpdates);
@@ -761,13 +779,5 @@ public class Replica extends AbstractActor {
             : getLastKnownUpdate().updateId.toString(),
         this.electionInProgress, this.crashed, this.replicas.size());
     log.info(Colors.BLUE + status + Colors.RESET);
-  }
-
-  private void onNewCoordinator(Messages.NewCoordinator msg) {
-    if (msg.newCoordinatorId == this.replicaId) {
-      becomeCoordinator(msg.knownUpdates);
-      return;
-    } 
-    // NOTE: Addirittura fare messaggio collegato direttamente con la funzione becomeCoordinator ??
   }
 }
