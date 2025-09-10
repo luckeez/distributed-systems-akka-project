@@ -521,10 +521,13 @@ public class Replica extends AbstractActor {
 
     if (shouldCrash(Messages.CrashPoint.AFTER_RECEIVING_UPDATE))
       return;
+    
     this.pendingUpdates.putIfAbsent(msg.updateId, msg);
 
     if (shouldCrash(Messages.CrashPoint.BEFORE_SENDING_ACK))
       return;
+    log.info("Replica " + this.replicaId + " sending Ack for update " + msg.updateId);
+    
     introduceNetworkDelay();
     getSender().tell(new Messages.Ack(msg.updateId), getSelf());
 
@@ -541,12 +544,14 @@ public class Replica extends AbstractActor {
   private void onAck(Messages.Ack msg) {
     if (this.pendingAcks.containsKey(msg.updateId)) {
       int currentAcks = pendingAcks.get(msg.updateId);
-      this.pendingAcks.put(msg.updateId, currentAcks + 1);
-      if (currentAcks + 1 >= quorumSize) {
+      this.pendingAcks.put(msg.updateId, ++currentAcks);
+
+      // check if quorum is reached. +1 because the coordinator implicitly acks
+      if (currentAcks + 1 >= this.quorumSize) {
         log.info("Coordinator " + this.replicaId + " received quorum for update " + msg.updateId);
 
-        // if (shouldCrash(Messages.CrashPoint.BEFORE_SENDING_WRITEOK))
-        //   return;
+        if (shouldCrash(Messages.CrashPoint.BEFORE_SENDING_WRITEOK))
+          return;
 
         Messages.Update update = this.pendingUpdates.get(msg.updateId);
         applyUpdate(update);
@@ -732,8 +737,13 @@ public class Replica extends AbstractActor {
   }
 
   private void onCrash(Messages.Crash msg) {
+    if (this.replicas.size() <= this.quorumSize) {
+      log.info(Colors.RED + "Replica " + this.replicaId + " ignoring crash command to preserve quorum size" + Colors.RESET);
+      return;
+    } else {
     log.info(Colors.RED + "Replica " + this.replicaId + " crashing now!" + Colors.RESET);
     crash();
+    }
   }
 
   private void onSetCrashPoint(Messages.SetCrashPoint msg) {

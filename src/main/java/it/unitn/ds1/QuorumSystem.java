@@ -58,6 +58,7 @@ public class QuorumSystem {
     System.out.println("scenario afterupdate    - Crash after sending updates");
     System.out.println("scenario writeok        - Crash during sending WriteOK");
     System.out.println("scenario afterwriteok   - Crash after sending WriteOK");
+    System.out.println("scenario recvupdate     - Replica crash after receiving update");
     System.out.println("scenario recovery       - Recovery and synchronization test");
     System.out.println("scenario stress         - Stress test with multiple operations");
   }
@@ -195,6 +196,9 @@ public class QuorumSystem {
           break;
         case "afterwriteok":
           runCrashAfterSendingWriteOK();
+          break;
+        case "recvupdate":
+          runCrashAfterReceivingUpdate();
           break;
         default:
           System.out.println("Unknown scenario: " + scenarioName);
@@ -363,6 +367,22 @@ private static void runCrashDuringSendingWriteOK() throws InterruptedException {
 
     printStatus();
     System.out.println("Crash after sending WriteOK scenario completed");
+  }
+
+// --------------------- RECEIVE UPDATE scenario --------------
+private static void runCrashAfterReceivingUpdate() throws InterruptedException {
+    System.out.println("=== Crash After Receiving Update Scenario ===");
+
+    // Set replica to crash after receiving update
+    replicas.get(1).tell(new Messages.SetCrashPoint(Messages.CrashPoint.AFTER_RECEIVING_UPDATE, 0), ActorRef.noSender());
+    Thread.sleep(500);
+
+    System.out.println("Sending write request that will trigger replica crash after receiving update...");
+    clients.get(0).tell(new Messages.WriteRequest(450), ActorRef.noSender());
+    Thread.sleep(7000);
+
+    printStatus();
+    System.out.println("Crash after receiving update scenario completed");
   }
 
 // --------------------- RECOVERY scenario --------------------
