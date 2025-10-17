@@ -294,7 +294,7 @@ public class Replica extends AbstractActor {
   }
 
   private void startElection() {
-    if (this.electionInProgress || shouldCrash(Messages.CrashPoint.DURING_ELECTION))
+    if (this.electionInProgress || shouldCrash(Messages.CrashPoint.DURING_ELECTION))     
       return;
     this.electionInProgress = true;
     this.replicas.removeIf(r -> r.path().name().equals("Replica" + this.coordinatorId));
@@ -506,6 +506,7 @@ public class Replica extends AbstractActor {
         return;
     } else {
       introduceNetworkDelay();
+      log.info("Replica " + this.replicaId + " forwarding write request to coordinator " + this.coordinatorId);
       forwardToCoordinator(new Messages.WriteRequest(msg.value, msg.requestInfo));
     }
     if (this.updateTimeout != null) {
@@ -624,14 +625,14 @@ public class Replica extends AbstractActor {
     // Start election
     if (!this.electionInProgress) {
         getContext().getSystem().scheduler().scheduleOnce(
-            Duration.create(this.replicaId * 80, TimeUnit.MILLISECONDS),
+            Duration.create(this.replicaId * 75, TimeUnit.MILLISECONDS),
             getSelf(),
             new Messages.StartElection(),
             getContext().getDispatcher(),
             getSelf()
         );
     }
-    // Timeout to check if the election was succesful
+    // Timeout to check if the election was successful
     this.electionTimeout = getContext().getSystem().scheduler().scheduleOnce(
         Duration.create(10, TimeUnit.SECONDS),
         getSelf(),

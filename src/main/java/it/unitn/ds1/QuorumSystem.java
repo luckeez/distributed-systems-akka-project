@@ -219,7 +219,7 @@ public class QuorumSystem {
     clients.get(0).tell(new Messages.WriteRequest(10), ActorRef.noSender());
     Thread.sleep(1000);
 
-    replicas.get(0).tell(new Messages.ReadRequest(), clients.get(1));
+    replicas.get(0).tell(new Messages.ReadRequest(), clients.get(0));
     Thread.sleep(500);
 
     clients.get(0).tell(new Messages.WriteRequest(20), ActorRef.noSender());
@@ -235,16 +235,13 @@ public class QuorumSystem {
     System.out.println("=== Coordinator Crash Scenario ===");
 
     // Set coordinator to crash after sending first update
-    replicas.get(0).tell(new Messages.SetCrashPoint(Messages.CrashPoint.AFTER_SENDING_UPDATE, 1), ActorRef.noSender());
+    replicas.get(0).tell(new Messages.SetCrashPoint(Messages.CrashPoint.AFTER_SENDING_UPDATE, 0), ActorRef.noSender());
     Thread.sleep(500);
 
     System.out.println("Sending write request that will trigger coordinator crash...");
     clients.get(0).tell(new Messages.WriteRequest(100), ActorRef.noSender());
     Thread.sleep(5000);
 
-    System.out.println("Sending another write request to test election...");
-    clients.get(0).tell(new Messages.WriteRequest(200), ActorRef.noSender());
-    Thread.sleep(7000);
     printStatus();
     System.out.println("Coordinator crash scenario completed");
   }
@@ -339,11 +336,11 @@ public class QuorumSystem {
   }
 
 // --------------------- WRITEOK scenarios --------------------
-private static void runCrashDuringSendingWriteOK() throws InterruptedException {
+  private static void runCrashDuringSendingWriteOK() throws InterruptedException {
     System.out.println("=== Crash Before Sending WriteOK Scenario ===");
 
     // Set coordinator to crash before sending WriteOK
-    replicas.get(0).tell(new Messages.SetCrashPoint(Messages.CrashPoint.DURING_SENDING_WRITEOK, 3), ActorRef.noSender());
+    replicas.get(0).tell(new Messages.SetCrashPoint(Messages.CrashPoint.DURING_SENDING_WRITEOK, 5), ActorRef.noSender());
     Thread.sleep(500);
 
     System.out.println("Sending write request that will trigger crash during sending WriteOK...");
@@ -369,8 +366,9 @@ private static void runCrashDuringSendingWriteOK() throws InterruptedException {
     System.out.println("Crash after sending WriteOK scenario completed");
   }
 
+
 // --------------------- RECEIVE UPDATE scenario --------------
-private static void runCrashAfterReceivingUpdate() throws InterruptedException {
+  private static void runCrashAfterReceivingUpdate() throws InterruptedException {
     System.out.println("=== Crash After Receiving Update Scenario ===");
 
     // Set replica to crash after receiving update
@@ -384,6 +382,7 @@ private static void runCrashAfterReceivingUpdate() throws InterruptedException {
     printStatus();
     System.out.println("Crash after receiving update scenario completed");
   }
+
 
 // --------------------- RECOVERY scenario --------------------
   private static void runRecoveryScenario() throws InterruptedException {

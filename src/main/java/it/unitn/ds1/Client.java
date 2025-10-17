@@ -58,10 +58,10 @@ public class Client extends AbstractActor {
     ActorRef replica = this.replicas.get(ThreadLocalRandom.current().nextInt(this.replicas.size()));
     Cancellable timeout = getContext().system().scheduler().scheduleOnce(
         Duration.create(7, TimeUnit.SECONDS),
-        replica,
+        replica, // receiver
         msg,
         getContext().system().dispatcher(),
-        getSelf());
+        getSelf()); // sender
     this.pendingRequestsTimeouts.put(msg.requestInfo, timeout);
 
   }
