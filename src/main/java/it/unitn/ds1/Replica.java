@@ -622,7 +622,7 @@ public class Replica extends AbstractActor {
     // Start election
     if (!this.electionInProgress) {
         getContext().getSystem().scheduler().scheduleOnce(
-            Duration.create(this.replicaId * 65, TimeUnit.MILLISECONDS),
+            Duration.create(this.replicaId * 80, TimeUnit.MILLISECONDS),
             getSelf(),
             new Messages.StartElection(),
             getContext().getDispatcher(),
@@ -699,7 +699,7 @@ public class Replica extends AbstractActor {
       return;
     }
     getSender().tell(new Messages.ElectionAck(this.replicaId), getSelf());
-    log.info("Replica " + this.replicaId + " received election message from " + getSender().path().name());
+    log.info("Replica " + this.replicaId + " received election message from " + getSender().path().name() + " with initiator " + msg.initiatorId);
 
     if (!this.electionInProgress) {
       this.electionInProgress = true;
@@ -771,8 +771,8 @@ public class Replica extends AbstractActor {
 
   private void onGetState(Messages.GetState msg) {
     String status = String.format(
-        "Replica %d | Coordinator: %b | Epoch: %d | SeqNum: %d | Value: %d | LastUpdateId: %s | ElectionInProgress: %b | Crashed: %b, GroupSize: %d",
-        this.replicaId, this.isCoordinator, this.currentEpoch, this.currentSequenceNumber, this.currentValue,
+        "Replica %d | Coordinator: %d | Epoch: %d | SeqNum: %d | Value: %d | LastUpdateId: %s | ElectionInProgress: %b | Crashed: %b, GroupSize: %d",
+        this.replicaId, this.coordinatorId, this.currentEpoch, this.currentSequenceNumber, this.currentValue,
         this.updateHistory.isEmpty() ? new Messages.UpdateId(0, -1).toString()
             : getLastKnownUpdate().updateId.toString(),
         this.electionInProgress, this.crashed, this.replicas.size());

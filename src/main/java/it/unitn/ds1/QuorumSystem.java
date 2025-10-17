@@ -251,7 +251,7 @@ public class QuorumSystem {
     System.out.println("=== Election Scenario: Coord. and Replica Crash ===");
 
     // Set multiple replicas to crash at different points
-    replicas.get(4).tell(new Messages.SetCrashPoint(Messages.CrashPoint.DURING_ELECTION, 0), ActorRef.noSender());
+    replicas.get(7).tell(new Messages.SetCrashPoint(Messages.CrashPoint.DURING_ELECTION, 0), ActorRef.noSender());
     Thread.sleep(500);
 
     replicas.get(0).tell(new Messages.Crash(), ActorRef.noSender());
@@ -340,7 +340,7 @@ public class QuorumSystem {
     System.out.println("=== Crash Before Sending WriteOK Scenario ===");
 
     // Set coordinator to crash before sending WriteOK
-    replicas.get(0).tell(new Messages.SetCrashPoint(Messages.CrashPoint.DURING_SENDING_WRITEOK, 5), ActorRef.noSender());
+    replicas.get(0).tell(new Messages.SetCrashPoint(Messages.CrashPoint.DURING_SENDING_WRITEOK, 3), ActorRef.noSender());
     Thread.sleep(500);
 
     System.out.println("Sending write request that will trigger crash during sending WriteOK...");
