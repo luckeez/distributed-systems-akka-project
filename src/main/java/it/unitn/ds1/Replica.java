@@ -601,9 +601,6 @@ public class Replica extends AbstractActor {
 
     if (shouldCrash(Messages.CrashPoint.AFTER_RECEIVING_WRITEOK))
       return;
-
-    // Reset heartbeat timeout since we heard from coordinator
-    resetHeartBeatTimeout();
   }
 
   private void onHeartBeat(Messages.HeartBeat msg) {
@@ -625,7 +622,7 @@ public class Replica extends AbstractActor {
     // Start election
     if (!this.electionInProgress) {
         getContext().getSystem().scheduler().scheduleOnce(
-            Duration.create(this.replicaId * 75, TimeUnit.MILLISECONDS),
+            Duration.create(this.replicaId * 65, TimeUnit.MILLISECONDS),
             getSelf(),
             new Messages.StartElection(),
             getContext().getDispatcher(),
