@@ -13,6 +13,7 @@ public class QuorumSystem {
   private static List<ActorRef> replicas = new ArrayList<>();
   private static Scanner scanner;
   private static final int N = 10;
+  private static final int N_CLIENTS = 2;
 
   private static void initializeSystem() {
     replicas = new ArrayList<>();
@@ -25,19 +26,21 @@ public class QuorumSystem {
       replica.tell(new Messages.Initialize(replicas), ActorRef.noSender());
     }
 
-    clients.add(system.actorOf(Client.props(0, replicas), "Client0"));
-    System.out.println(Colors.BLUE + "System has been initialize!" + Colors.RESET);
+    for (int i = 0; i < N_CLIENTS; i++){
+      clients.add(system.actorOf(Client.props(i, replicas), "Client" + i));
+    }
+    System.out.println(Colors.BLUE + "System has been initialized!" + Colors.RESET);
   }
 
   private static void printHelp() {
     System.out.println("\n=== Available Commands ===");
     System.out.println("help                          - Show this help message");
     System.out.println("status                        - Show system status");
-    System.out.println("write <clientId> <value>      - Client writes a value (clientId: 0-2)");
-    System.out.println("read <clientId> <replicaId>   - Client reads from replica (replicaId: 0-4)");
+    System.out.println("write <clientId> <value>      - Client writes a value (clientId: 0-" + (N_CLIENTS-1) +")");
+    System.out.println("read <clientId>               - Client reads from replica (clientId: 0-" + (N_CLIENTS-1) +")");
     System.out.println("crash <replicaId>             - Immediately crash a replica");
     System.out.println("setcrash <replicaId> <point> <count> - Set crash point for replica");
-    System.out.println("scenario <n>               - Run predefined scenario");
+    System.out.println("scenario <n>                  - Run predefined scenario");
     System.out.println("reset                         - Reset and restart the system");
     System.out.println("exit                          - Shutdown and exit");
     System.out.println("\n=== Crash Points ===");
@@ -59,8 +62,8 @@ public class QuorumSystem {
     System.out.println("scenario writeok        - Crash during sending WriteOK");
     System.out.println("scenario afterwriteok   - Crash after sending WriteOK");
     System.out.println("scenario recvupdate     - Replica crash after receiving update");
-    System.out.println("scenario recovery       - Recovery and synchronization test");
-    System.out.println("scenario stress         - Stress test with multiple operations");
+    // System.out.println("scenario recovery       - Recovery and synchronization test");
+    // System.out.println("scenario stress         - Stress test with multiple operations");
   }
 
   private static void printStatus() {
@@ -414,11 +417,11 @@ public class QuorumSystem {
     System.out.println("=== Stress Scenario: Multiple Concurrent Operations ===");
 
     // Rapid fire writes from multiple clients
-    for (int i = 0; i < 10; i++) {
+    for (int i = 0; i < 3; i++) {
       int clientId = i % clients.size();
       int value = 1000 + i;
-      clients.get(clientId).tell(new Messages.WriteRequest(value), ActorRef.noSender());
-      Thread.sleep(200);
+      clients.get(0).tell(new Messages.WriteRequest(value), ActorRef.noSender());
+      Thread.sleep(500);
 
       // Crash coordinator halfway through
       if (i == 5) {

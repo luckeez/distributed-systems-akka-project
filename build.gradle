@@ -35,4 +35,5 @@ mainClassName = "it.unitn.ds1.QuorumSystem"
 
 run {
     standardInput = System.in
+    jvmArgs = ["-Duser.timezone=Europe/Rome"]
 }

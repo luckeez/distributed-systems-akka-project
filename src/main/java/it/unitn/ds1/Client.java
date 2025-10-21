@@ -6,6 +6,7 @@ import akka.actor.Cancellable;
 import akka.actor.Props;
 import akka.event.Logging;
 import akka.event.LoggingAdapter;
+import it.unitn.ds1.debug.Colors;
 import scala.concurrent.duration.Duration;
 
 import java.util.HashMap;
@@ -75,14 +76,14 @@ public class Client extends AbstractActor {
 
   private void onReadRequest(Messages.ReadRequest msg) {
     ActorRef replica = this.replicas.get(ThreadLocalRandom.current().nextInt(this.replicas.size()));
-    log.info("Client " + this.clientId + " read request to " + replica.path().name());
+    log.info(Colors.YELLOW + "Client " + this.clientId + " read req to " + replica.path().name() + Colors.RESET);
     introduceNetworkDelay();
     replica.tell(msg, getSelf());
   }
 
   private void onWriteRequest(Messages.WriteRequest msg) {
     ActorRef replica = this.replicas.get(ThreadLocalRandom.current().nextInt(this.replicas.size()));
-    log.info("Client " + this.clientId + " write request with value " + msg.value + " to " + replica.path().name());
+    log.info(Colors.YELLOW + "Client " + this.clientId + " write request with value " + msg.value + " to " + replica.path().name() + Colors.RESET);
     while (!pendingRequestsTimeouts.isEmpty()) {
       // Wait for previous requests to complete
       try {
@@ -100,13 +101,12 @@ public class Client extends AbstractActor {
   }
 
   private void onReadResponse(Messages.ReadResponse msg) {
-    log.info("Client " + this.clientId + " received read response with value " + msg.value + " from "
-        + getSender().path().name());
+    log.info(Colors.GREEN + "Client " + this.clientId + " read done " + msg.value + Colors.RESET);
   }
 
   private void onWriteResponse(Messages.WriteResponse msg) {
     log.info("Client " + this.clientId + " received write response from " + getSender().path().name() + " with outcome: "
-        + (msg.success ? "SUCCESS" : "FAILED"));
+        + (msg.success ? Colors.GREEN + "SUCCESS" + Colors.RESET : Colors.RED + "FAILED" + Colors.RESET));
     cancelRequestTimeout(msg.requestInfo);
   }
 }

@@ -359,7 +359,6 @@ public class Replica extends AbstractActor {
   private void forwardToCoordinator(Serializable msg) {
     for (ActorRef replica : this.replicas) {
       if (replica.path().name().equals("Replica" + this.coordinatorId)) {
-        log.info("Replica " + this.replicaId + " forwarding write request to coordinator " + this.coordinatorId);
         introduceNetworkDelay();
         replica.tell(msg, getSelf());
         return;
@@ -418,7 +417,7 @@ public class Replica extends AbstractActor {
     for (Messages.Update update : knownUpdates) {
       if (!this.updateHistory.contains(update)) {
         this.updateHistory.add(update);
-        log.info(Colors.GREEN + "Replica " + this.replicaId + " applied update " + update.updateId + " value " + update.value + Colors.RESET);
+        log.info(Colors.GREEN + "Replica " + this.replicaId + " update " + update.updateId + " value " + update.value + Colors.RESET);
       }
     }
 
@@ -433,9 +432,9 @@ public class Replica extends AbstractActor {
     this.currentValue = update.value;
     this.currentSequenceNumber++;
     if (this.isCoordinator) {
-      log.info(Colors.GREEN + "Coordinator" + this.replicaId + " applied update " + update.updateId + " value " + update.value + Colors.RESET);
+      log.info(Colors.GREEN + "Coordinator " + this.replicaId + " update " + update.updateId + " " + update.value + Colors.RESET);
     } else {
-      log.info(Colors.GREEN + "Replica" + this.replicaId + " applied update " + update.updateId + " value " + update.value + Colors.RESET);
+      log.info(Colors.GREEN + "Replica " + this.replicaId + " update " + update.updateId + " " + update.value + Colors.RESET);
     }
   }
 
@@ -498,9 +497,8 @@ public class Replica extends AbstractActor {
       this.pendingUpdates.put(updateId, update);
       this.pendingAcks.put(updateId, 0);
 
+      log.info("Coordinator " + this.replicaId + " broadcasting update " + updateId + " value " + update.value);
       broadcast(update, Messages.CrashPoint.DURING_SENDING_UPDATE);
-
-      log.info("Coordinator " + this.replicaId + " broadcasted update " + updateId + " value " + update.value);
 
       if (shouldCrash(Messages.CrashPoint.AFTER_SENDING_UPDATE))
         return;
@@ -568,9 +566,9 @@ public class Replica extends AbstractActor {
         applyUpdate(update);
         Messages.WriteOk writeOk = new Messages.WriteOk(msg.updateId);
 
+        log.info("Coordinator " + this.replicaId + " broadcasting WriteOk for update " + msg.updateId);
         if(broadcast(writeOk, Messages.CrashPoint.DURING_SENDING_WRITEOK))
           return;
-        log.info("Coordinator " + this.replicaId + " broadcasted WriteOk for update " + msg.updateId);
 
         if (shouldCrash(Messages.CrashPoint.AFTER_SENDING_WRITEOK))
           return;
@@ -776,6 +774,6 @@ public class Replica extends AbstractActor {
         this.updateHistory.isEmpty() ? new Messages.UpdateId(0, -1).toString()
             : getLastKnownUpdate().updateId.toString(),
         this.electionInProgress, this.crashed, this.replicas.size());
-    log.info(Colors.BLUE + status + Colors.RESET);
+    log.warning(Colors.BLUE + status + Colors.RESET);
   }
 }
