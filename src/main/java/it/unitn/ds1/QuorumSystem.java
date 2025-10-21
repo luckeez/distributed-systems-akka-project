@@ -62,8 +62,7 @@ public class QuorumSystem {
     System.out.println("scenario writeok        - Crash during sending WriteOK");
     System.out.println("scenario afterwriteok   - Crash after sending WriteOK");
     System.out.println("scenario recvupdate     - Replica crash after receiving update");
-    // System.out.println("scenario recovery       - Recovery and synchronization test");
-    // System.out.println("scenario stress         - Stress test with multiple operations");
+    System.out.println("scenario stress         - Stress test with multiple operations");
   }
 
   private static void printStatus() {
@@ -387,44 +386,19 @@ public class QuorumSystem {
   }
 
 
-// --------------------- RECOVERY scenario --------------------
-  private static void runRecoveryScenario() throws InterruptedException {
-    System.out.println("=== Recovery Scenario: Synchronization Test ===");
-
-    // Normal operation first
-    clients.get(0).tell(new Messages.WriteRequest(500), ActorRef.noSender());
-    Thread.sleep(1000);
-
-    // Crash coordinator after some updates
-    replicas.get(0).tell(new Messages.Crash(), ActorRef.noSender());
-    Thread.sleep(1000);
-
-    // Continue operations with new coordinator
-    clients.get(0).tell(new Messages.WriteRequest(600), ActorRef.noSender());
-    Thread.sleep(2000);
-
-    clients.get(0).tell(new Messages.WriteRequest(700), ActorRef.noSender());
-    Thread.sleep(1000);
-
-    // Read from different replicas to check consistency
-    printStatus();
-
-    System.out.println("Recovery scenario completed");
-  }
-
 // --------------------- STRESS scenario --------------------
   private static void runStressScenario() throws InterruptedException {
     System.out.println("=== Stress Scenario: Multiple Concurrent Operations ===");
 
     // Rapid fire writes from multiple clients
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < 5; i++) {
       int clientId = i % clients.size();
       int value = 1000 + i;
       clients.get(0).tell(new Messages.WriteRequest(value), ActorRef.noSender());
       Thread.sleep(500);
 
       // Crash coordinator halfway through
-      if (i == 5) {
+      if (i == 3) {
         replicas.get(0).tell(new Messages.Crash(), ActorRef.noSender());
         System.out.println("Coordinator crashed during stress test!");
       }

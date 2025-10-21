@@ -1,6 +1,7 @@
 package it.unitn.ds1;
 
 import akka.actor.AbstractActor;
+import akka.actor.AbstractActorWithStash;
 import akka.actor.ActorRef;
 import akka.actor.Cancellable;
 import akka.actor.Props;
@@ -15,7 +16,7 @@ import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 
-public class Client extends AbstractActor {
+public class Client extends AbstractActorWithStash {
   private final LoggingAdapter log = Logging.getLogger(getContext().getSystem(), this);
   private final int clientId;
   private final List<ActorRef> replicas;
@@ -84,13 +85,11 @@ public class Client extends AbstractActor {
   private void onWriteRequest(Messages.WriteRequest msg) {
     ActorRef replica = this.replicas.get(ThreadLocalRandom.current().nextInt(this.replicas.size()));
     log.info(Colors.YELLOW + "Client " + this.clientId + " write request with value " + msg.value + " to " + replica.path().name() + Colors.RESET);
-    while (!pendingRequestsTimeouts.isEmpty()) {
-      // Wait for previous requests to complete
-      try {
-        Thread.sleep(100);
-      } catch (InterruptedException e) {
-        Thread.currentThread().interrupt();
-      }
+
+    if (!pendingRequestsTimeouts.isEmpty()){
+      log.info(Colors.RED + "Client " + this.clientId + " stashing new request for value " + msg.value + Colors.RESET);
+      stash();
+      return;
     }
     introduceNetworkDelay();
     Messages.WriteRequest req = new Messages.WriteRequest(msg.value,
@@ -108,5 +107,7 @@ public class Client extends AbstractActor {
     log.info("Client " + this.clientId + " received write response from " + getSender().path().name() + " with outcome: "
         + (msg.success ? Colors.GREEN + "SUCCESS" + Colors.RESET : Colors.RED + "FAILED" + Colors.RESET));
     cancelRequestTimeout(msg.requestInfo);
+
+    unstashAll();
   }
 }
