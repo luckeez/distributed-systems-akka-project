@@ -57,7 +57,7 @@
         </encoder>
     </appender>
 
-    <logger name="it.unitn.ds1.Client" level="all" additivity="false">
+    <logger name="it.unitn.ds1.Client" level="all" additivity="true">
         <appender-ref ref="CLIENT_FILE" />
     </logger>
 
