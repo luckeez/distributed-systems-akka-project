@@ -256,4 +256,12 @@ public class Messages {
 
   public static class GetState implements Serializable {
   }
+
+  public static class keepReading implements Serializable {
+  }
+
+  public static class stopReading implements Serializable {
+  }
+
+
 }

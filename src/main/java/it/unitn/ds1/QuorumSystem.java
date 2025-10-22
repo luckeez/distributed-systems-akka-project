@@ -13,7 +13,7 @@ public class QuorumSystem {
   private static List<ActorRef> replicas = new ArrayList<>();
   private static Scanner scanner;
   private static final int N = 10;
-  private static final int N_CLIENTS = 2;
+  private static final int N_CLIENTS = 3;
 
   private static void initializeSystem() {
     replicas = new ArrayList<>();
@@ -171,9 +171,6 @@ public class QuorumSystem {
           break;
         case "election":
           runElectionScenario();
-          break;
-        case "recovery":
-          runRecoveryScenario();
           break;
         case "stress":
           runStressScenario();
@@ -391,11 +388,15 @@ public class QuorumSystem {
     System.out.println("=== Stress Scenario: Multiple Concurrent Operations ===");
 
     // Rapid fire writes from multiple clients
-    for (int i = 0; i < 5; i++) {
-      int clientId = i % clients.size();
+    for (int i = 0; i < 10; i++) {
+      int clientId = i % (clients.size()-1);
+      // int value = 1000 + 1000*clientId + i;
       int value = 1000 + i;
       clients.get(0).tell(new Messages.WriteRequest(value), ActorRef.noSender());
-      Thread.sleep(500);
+      i+=1;
+      value = 2000 + i;
+      clients.get(1).tell(new Messages.WriteRequest(value), ActorRef.noSender());
+      Thread.sleep(100);
 
       // Crash coordinator halfway through
       if (i == 3) {
@@ -404,8 +405,16 @@ public class QuorumSystem {
       }
     }
 
-    Thread.sleep(3000);
+    Thread.sleep(10000);
     System.out.println("Stress scenario completed");
+  }
+
+  private static void keepReading() {
+    clients.get(2).tell(new Messages.keepReading(), ActorRef.noSender());
+  }
+
+  private static void stopReading() {
+    clients.get(2).tell(new Messages.stopReading(), ActorRef.noSender());
   }
 
 // ==================== SYSTEM RESET =====================
@@ -477,6 +486,12 @@ public class QuorumSystem {
             break;
           case "reset":
             resetSystem();
+            break;
+          case "r":
+            keepReading();
+            break;
+          case "s":
+            stopReading();
             break;
           case "quit":
           case "exit":

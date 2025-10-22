@@ -340,15 +340,17 @@ public class Replica extends AbstractActor {
     scheduleHeartBeat();
     scheduleReplicaTimeouts();
 
+    int i = 0;
     for (Messages.Update update : knownPendingUpdates) {
       if (!this.updateHistory.contains(update)) {
         log.info("Coordinator " + this.replicaId + " re-broadcasting pending update " + update.updateId + " value " + update.value);
-        Messages.Update newUpdate = new Messages.Update(new Messages.UpdateId(this.currentEpoch, this.currentSequenceNumber),
+        Messages.Update newUpdate = new Messages.Update(new Messages.UpdateId(this.currentEpoch, this.currentSequenceNumber + i),
             update.value, update.requestInfo);
         this.pendingAcks.put(newUpdate.updateId, 0);
         this.pendingUpdates.put(newUpdate.updateId, newUpdate);
         broadcast(newUpdate, null);
       }
+      i++;
     }
     this.electionInProgress = false;
 
@@ -468,7 +470,8 @@ public class Replica extends AbstractActor {
   private void onReadRequest(Messages.ReadRequest msg) {
     if (this.crashed)
       return;
-    log.info("Replica " + this.replicaId + " received read request from " + getSender().path().name());
+    if (!getSender().path().name().equals("Client2"))
+      log.info("Replica " + this.replicaId + " received read request from " + getSender().path().name());
     introduceNetworkDelay();
     getSender().tell(new Messages.ReadResponse(this.currentValue), getSelf());
   }
@@ -487,8 +490,13 @@ public class Replica extends AbstractActor {
 
       if (shouldCrash(Messages.CrashPoint.BEFORE_SENDING_UPDATE))
         return;
-
+     
       Messages.UpdateId updateId = new Messages.UpdateId(this.currentEpoch, this.currentSequenceNumber);
+
+      if(this.pendingUpdates.containsKey(updateId)) {
+        Messages.UpdateId lastUpdate = pendingUpdates.keySet().stream().max(Messages.UpdateId::compareTo).get();
+        updateId = new Messages.UpdateId(lastUpdate.epoch, lastUpdate.sequenceNumber + 1);
+      }
       Messages.Update update = new Messages.Update(updateId, msg.value, msg.requestInfo);
 
       log.info(Colors.CYAN + "Coordinator " + this.replicaId + " initiating update " + updateId + " value " + update.value +
@@ -774,6 +782,10 @@ public class Replica extends AbstractActor {
         this.updateHistory.isEmpty() ? new Messages.UpdateId(0, -1).toString()
             : getLastKnownUpdate().updateId.toString(),
         this.electionInProgress, this.crashed, this.replicas.size());
+    status += "\nUpdate History: ";
+    for (Messages.Update update : this.updateHistory) {
+      status += "id:  " + update.updateId + ", Value: " + Colors.RESET + update.value + Colors.BLUE + " -- ";
+    }
     log.warning(Colors.BLUE + status + Colors.RESET);
   }
 }

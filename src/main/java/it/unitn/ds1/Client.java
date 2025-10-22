@@ -22,6 +22,7 @@ public class Client extends AbstractActorWithStash {
   private final List<ActorRef> replicas;
   private int requestCounter = 0;
   private Map<Messages.RequestInfo, Cancellable> pendingRequestsTimeouts = new HashMap<>();
+  private Cancellable readScheduler;
 
   public Client(int clientId, List<ActorRef> replicas) {
     this.clientId = clientId;
@@ -44,6 +45,8 @@ public class Client extends AbstractActorWithStash {
         .match(Messages.WriteRequest.class, this::onWriteRequest)
         .match(Messages.ReadResponse.class, this::onReadResponse)
         .match(Messages.WriteResponse.class, this::onWriteResponse)
+        .match(Messages.keepReading.class, this::keepReading)
+        .match(Messages.stopReading.class, this::stopReading)
         .build();
   }
 
@@ -110,4 +113,25 @@ public class Client extends AbstractActorWithStash {
 
     unstashAll();
   }
+
+
+  private void keepReading(Messages.keepReading msg) {
+    this.readScheduler = getContext().system().scheduler().scheduleAtFixedRate(
+        Duration.create(100, TimeUnit.MILLISECONDS),
+        Duration.create(500, TimeUnit.MILLISECONDS),
+        getSelf(),
+        new Messages.ReadRequest(),
+        getContext().system().dispatcher(),
+        getSelf());
+  }
+
+  private void stopReading(Messages.stopReading msg) {
+    if (this.readScheduler != null && !this.readScheduler.isCancelled()) {
+      this.readScheduler.cancel();
+    }
+  }
+
+
+
+
 }
