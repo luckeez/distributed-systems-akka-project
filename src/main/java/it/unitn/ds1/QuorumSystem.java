@@ -409,19 +409,6 @@ public class QuorumSystem {
     System.out.println("Stress scenario completed");
   }
 
-  /*
-  TODO
-  Funzioni per il client di test che legge continuamente finché non gli viene detto di fermarsi
-  */
-
-  // private static void keepReading() {
-  //   clients.get(2).tell(new Messages.keepReading(), ActorRef.noSender());
-  // }
-
-  // private static void stopReading() {
-  //   clients.get(2).tell(new Messages.stopReading(), ActorRef.noSender());
-  // }
-
 // ==================== SYSTEM RESET =====================
   private static void resetSystem() {
     System.out.println("Resetting system...");
@@ -492,13 +479,6 @@ public class QuorumSystem {
           case "reset":
             resetSystem();
             break;
-          // TODO per client che continua a leggere
-          // case "r":
-          //   keepReading();
-          //   break;
-          // case "s":
-          //   stopReading();
-            // break;
           case "quit":
           case "exit":
             System.out.println(Colors.YELLOW + "Shutting down the system..." + Colors.RESET);

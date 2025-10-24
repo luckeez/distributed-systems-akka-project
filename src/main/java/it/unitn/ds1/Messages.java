@@ -7,20 +7,20 @@ import java.util.Set;
 
 public class Messages {
   public enum CrashPoint {
-    BEFORE_SENDING_UPDATE, // ok
-    DURING_SENDING_UPDATE, // ok
-    AFTER_SENDING_UPDATE, // ok
-    AFTER_RECEIVING_UPDATE, // ok
-    BEFORE_SENDING_ACK, // ok
-    AFTER_SENDING_ACK, // ok
-    BEFORE_SENDING_WRITEOK, // ok
-    DURING_SENDING_WRITEOK, // ok
-    AFTER_SENDING_WRITEOK, // ok
-    AFTER_RECEIVING_WRITEOK, // ok
-    DURING_ELECTION, // ok
-    DURING_ELECTION_INITIATOR, // ok
-    BEFORE_SYNCHRONIZATION, // ok
-    AFTER_SYNCHRONIZATION; // ok
+    BEFORE_SENDING_UPDATE,
+    DURING_SENDING_UPDATE,
+    AFTER_SENDING_UPDATE, 
+    AFTER_RECEIVING_UPDATE, 
+    BEFORE_SENDING_ACK, 
+    AFTER_SENDING_ACK, 
+    BEFORE_SENDING_WRITEOK, 
+    DURING_SENDING_WRITEOK, 
+    AFTER_SENDING_WRITEOK, 
+    AFTER_RECEIVING_WRITEOK, 
+    DURING_ELECTION, 
+    DURING_ELECTION_INITIATOR, 
+    BEFORE_SYNCHRONIZATION, 
+    AFTER_SYNCHRONIZATION; 
   }
 
   public static class Initialize implements Serializable {
@@ -256,13 +256,4 @@ public class Messages {
 
   public static class GetState implements Serializable {
   }
-
-  // TODO classi di messaggi per client che continua a leggere
-  // public static class keepReading implements Serializable {
-  // }
-
-  // public static class stopReading implements Serializable {
-  // }
-
-
 }
