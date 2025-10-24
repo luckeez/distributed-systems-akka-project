@@ -1,246 +1,142 @@
 package it.unitn.ds1;
 
-import java.io.Serializable;
-import java.time.Duration;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Random;
-
 import akka.actor.AbstractActor;
-import akka.actor.Props;
+import akka.actor.AbstractActorWithStash;
 import akka.actor.ActorRef;
 import akka.actor.Cancellable;
+import akka.actor.Props;
 import akka.event.Logging;
 import akka.event.LoggingAdapter;
 import it.unitn.ds1.debug.Colors;
+import scala.concurrent.duration.Duration;
 
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.TimeUnit;
 
-public class Client extends AbstractActor {
-    private final LoggingAdapter log = Logging.getLogger(getContext().getSystem(), this);
-    private final int id;
-    private List<ActorRef> replicas = new ArrayList<>();
-    private final Random rnd;
-    private Cancellable requestScheduler;
-    private Cancellable readRequestTimeout;
-    private Cancellable writeRequestTimeout;
+public class Client extends AbstractActorWithStash {
+  private final LoggingAdapter log = Logging.getLogger(getContext().getSystem(), this);
+  private final int clientId;
+  private final List<ActorRef> replicas;
+  private int requestCounter = 0;
+  private Map<Messages.RequestInfo, Cancellable> pendingRequestsTimeouts = new HashMap<>();
+  // TODO per client che continua a leggere
+  private Cancellable readScheduler;
 
-    // CONSTRUCTOR
-    public Client(int id){
-        this.id = id;
-        this.rnd = new Random();
-    }   
+  public Client(int clientId, List<ActorRef> replicas) {
+    this.clientId = clientId;
+    this.replicas = replicas;
+  }
 
-    static public Props props(int id){
-        return Props.create(Client.class, () -> new Client(id));
+  static public Props props(int id, List<ActorRef> replicas) {
+    return Props.create(Client.class, () -> new Client(id, replicas));
+  }
+
+  @Override
+  public void preStart() {
+    log.info("Client " + this.clientId + " started successfully");
+  }
+
+  @Override
+  public Receive createReceive() {
+    return receiveBuilder()
+        .match(Messages.ReadRequest.class, this::onReadRequest)
+        .match(Messages.WriteRequest.class, this::onWriteRequest)
+        .match(Messages.ReadResponse.class, this::onReadResponse)
+        .match(Messages.WriteResponse.class, this::onWriteResponse)
+        // TODO per client che continua a leggere
+        // .match(Messages.keepReading.class, this::keepReading)
+        // .match(Messages.stopReading.class, this::stopReading)
+        .build();
+  }
+
+  private void introduceNetworkDelay() {
+    try {
+      Thread.sleep(ThreadLocalRandom.current().nextInt(10, 50));
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
     }
+  }
 
-    /* ---------------- Message classes ---------------- */
+  private void scheduleRequestTimeout(Messages.WriteRequest msg) {
 
-    // Client Read Request
-    public static class ReadRequestMsg implements Serializable{
-        public final ActorRef sender;
-        public ReadRequestMsg(ActorRef sender){
-            this.sender = sender;
-        }
+    ActorRef replica = this.replicas.get(ThreadLocalRandom.current().nextInt(this.replicas.size()));
+    Cancellable timeout = getContext().system().scheduler().scheduleOnce(
+        Duration.create(7, TimeUnit.SECONDS),
+        replica, // receiver
+        msg,
+        getContext().system().dispatcher(),
+        getSelf()); // sender
+    this.pendingRequestsTimeouts.put(msg.requestInfo, timeout);
+
+  }
+
+  private void cancelRequestTimeout(Messages.RequestInfo requestInfo) {
+    Cancellable timeout = this.pendingRequestsTimeouts.remove(requestInfo);
+    if (timeout != null) {
+      timeout.cancel();
     }
+  }
 
-    // Client Write Request
-    public static class WriteRequestMsg implements Serializable{
-        public final ActorRef sender;
-        // public final int proposedV;
-        public int proposedV;
-        public WriteRequestMsg(ActorRef sender, int proposedV){
-            this.sender = sender;
-            this.proposedV = proposedV;
-        }
+  private void onReadRequest(Messages.ReadRequest msg) {
+    ActorRef replica = this.replicas.get(ThreadLocalRandom.current().nextInt(this.replicas.size()));
+    log.info(Colors.YELLOW + "Client " + this.clientId + " read req to " + replica.path().name() + Colors.RESET);
+    introduceNetworkDelay();
+    replica.tell(msg, getSelf());
+  }
+
+  private void onWriteRequest(Messages.WriteRequest msg) {
+    ActorRef replica = this.replicas.get(ThreadLocalRandom.current().nextInt(this.replicas.size()));
+    log.info(Colors.YELLOW + "Client " + this.clientId + " write request with value " + msg.value + " to " + replica.path().name() + Colors.RESET);
+
+    if (!pendingRequestsTimeouts.isEmpty()){
+      log.info(Colors.RED + "Client " + this.clientId + " stashing new request for value " + msg.value + Colors.RESET);
+      stash();
+      return;
     }
+    introduceNetworkDelay();
+    Messages.WriteRequest req = new Messages.WriteRequest(msg.value,
+        new Messages.RequestInfo(getSelf(), this.requestCounter++));
+    scheduleRequestTimeout(req);
+    replica.tell(req, getSelf());
 
-    public static class JoinGroupMsg implements Serializable {   /// DOM perchè un nuovo joingroupmsg?
-        public final List<ActorRef> group;   // an array of group members
-        public JoinGroupMsg(List<ActorRef> group){
-            this.group = group;
-        }
-    }
+  }
 
-    public static class ReadResponseMsg implements Serializable{
-        public final int v;
-        public ReadResponseMsg(int v){
-            this.v = v;
-        }
-    }
+  private void onReadResponse(Messages.ReadResponse msg) {
+    log.info(Colors.GREEN + "Client " + this.clientId + " read done " + msg.value + Colors.RESET);
+  }
 
-    public static class WriteAckMsg implements Serializable{
-        public final int proposedV;
-        public WriteAckMsg(int proposedV){
-            this.proposedV = proposedV;
-        }
-    }
+  private void onWriteResponse(Messages.WriteResponse msg) {
+    log.info("Client " + this.clientId + " received write response from " + getSender().path().name() + " with outcome: "
+        + (msg.success ? Colors.GREEN + "SUCCESS" + Colors.RESET : Colors.RED + "FAILED" + Colors.RESET));
+    cancelRequestTimeout(msg.requestInfo);
 
-    public static class ReadRequestTimeoutMsg implements Serializable {
-        public final ActorRef replica;
-        public ReadRequestTimeoutMsg(ActorRef replica) {
-            this.replica = replica;
-        }
-    }
+    unstashAll();
+  }
 
-    public static class WriteRequestTimeoutMsg implements Serializable {
-        public final ActorRef replica;
-        // public final int proposedV;
-        public int proposedV;
-        public WriteRequestTimeoutMsg(ActorRef replica, int proposedV){
-            this.replica = replica;
-            this.proposedV = proposedV;
-        }
-    }
+  /*
+  TODO
+  Queste funzioni sono per fare un test con letture continue di un client.
+  Redirigere i log solo nel file client per non fare confusione. (additivyty = false)
+  Usare i messaggi keepReading e stopReading per iniziare e fermare le letture continue (tasto "r" e "s" nella console).
+  */
 
-    /* ---------------- Client logic ----------------- */
+  // private void keepReading(Messages.keepReading msg) {
+  //   this.readScheduler = getContext().system().scheduler().scheduleAtFixedRate(
+  //       Duration.create(100, TimeUnit.MILLISECONDS),
+  //       Duration.create(500, TimeUnit.MILLISECONDS),
+  //       getSelf(),
+  //       new Messages.ReadRequest(),
+  //       getContext().system().dispatcher(),
+  //       getSelf());
+  // }
 
-    private void onReadRequestMsg(ReadRequestMsg msg){
-        int to = rnd.nextInt(this.replicas.size());
-        replicas.get(to).tell(new Replica.ReadRequestMsg(getSelf()), getSelf());
+  // private void stopReading(Messages.stopReading msg) {
+  //   if (this.readScheduler != null && !this.readScheduler.isCancelled()) {
+  //     this.readScheduler.cancel();
+  //   }
+  // }
 
-        this.readRequestTimeout = getContext().system().scheduler().scheduleOnce(
-                Duration.ofSeconds(2),  // duration
-                getSelf(),   // receiver
-                new ReadRequestTimeoutMsg(replicas.get(to)), // message type
-                getContext().system().dispatcher(), // process
-                getSelf() // sender
-        );
-
-        log.info(Colors.YELLOW +"Client {} read req to replica {}"+Colors.RESET, this.id, to);
-    }
-
-    private void onWriteRequestMsg(WriteRequestMsg msg){
-        int to = rnd.nextInt(this.replicas.size());
-        replicas.get(to).tell(new Replica.WriteRequestMsg(getSelf(), msg.proposedV), getSelf());
-        log.info(Colors.YELLOW + "Client {} sent write request to replica {} with value {}"+ Colors.RESET, this.id, to, msg.proposedV);
-
-        this.writeRequestTimeout = getContext().system().scheduler().scheduleOnce(
-                Duration.ofSeconds(2),  // duration
-                getSelf(),   // receiver
-                new WriteRequestTimeoutMsg(replicas.get(to), msg.proposedV), // message type
-                getContext().system().dispatcher(), // process
-                getSelf() // sender
-        );
-    }
-
-    private void onJoinGroupMsg(JoinGroupMsg msg){
-        for (ActorRef a : msg.group){
-            if (!a.equals(getSelf())){
-                this.replicas.add(a);  // copy all replicas except for self
-            }
-        }
-        log.info("Client {} joined group with {} replicas", this.id, this.replicas.size());
-        // Schedule periodic crash decision
-        this.requestScheduler = getContext().system().scheduler().scheduleWithFixedDelay(
-                Duration.ZERO,
-                Duration.ofSeconds(3),
-                this::sendRequest,
-                getContext().system().dispatcher()
-        );
-    }
-
-    private void onReadResponseMsg(ReadResponseMsg msg){
-        if (readRequestTimeout != null && !readRequestTimeout.isCancelled()) {
-            readRequestTimeout.cancel();
-        }
-        log.info(Colors.GREEN + "Client {} read done: {}" + Colors.RESET, this.id, msg.v);
-    }
-
-    private void onWriteAckMsg(WriteAckMsg msg){
-        // TODO handle msg.proposedV in the queue?
-        if (writeRequestTimeout != null && !writeRequestTimeout.isCancelled()) {
-            writeRequestTimeout.cancel();
-        }
-        log.info(Colors.GREEN + "Client {} write done (received ACK) of value {}" + Colors.RESET, this.id, msg.proposedV);
-    }
-
-    private void onReadRequestTimeoutMsg(ReadRequestTimeoutMsg msg){
-        log.info(Colors.PURPLE + "Client READ TIMEOUT" + Colors.RESET);
-        // When receiving this timeout, assume that the replica has crashed
-        if (readRequestTimeout != null && !readRequestTimeout.isCancelled()) {
-            readRequestTimeout.cancel();
-        }
-        // remove from the list the crashed replica and resend a read request
-        this.replicas.remove(msg.replica);
-        getSelf().tell(new ReadRequestMsg(getSelf()), ActorRef.noSender());
-    }
-
-    private void onWriteRequestTimeoutMsg(WriteRequestTimeoutMsg msg){
-        log.info(Colors.PURPLE + "Client WRITE TIMEOUT" + Colors.RESET);
-        // When receiving this timeout, assume that the replica has crashed
-        if (writeRequestTimeout != null && !writeRequestTimeout.isCancelled()) {
-            writeRequestTimeout.cancel();
-        }
-
-        // DEV PROVA
-        if (msg.proposedV == 9999){
-            msg.proposedV = 9000;
-        }
-        if (msg.proposedV == 8888){
-            msg.proposedV = 8000;
-        }
-        if (msg.proposedV == 7777){
-            msg.proposedV = 7000;
-        }
-        if (msg.proposedV == 6666){
-            msg.proposedV = 6000;
-        }
-        // PROBLEMA: quando coordinator crasha meentre client fa una write, non deve rimuovere la replica a cui ha inviato la request.
-        // remove from the list the crashed replica and resend a write request with the same proposed value
-        this.replicas.remove(msg.replica);
-        getSelf().tell(new WriteRequestMsg(getSelf(), msg.proposedV), ActorRef.noSender());
-    }
-
-    // TODO onAckWriteResponse to know when the write request has not been received by te replica, and to cancel the timeout
-
-    // if (writeRequestTimeout != null && !writeRequestTimeout.isCancelled()) {
-    //     writeRequestTimeout.cancel();
-    // }
-
-
-    private void sendRequest(){
-        // int delay = rnd.nextInt(2000);
-        // try {
-        //     // introduce random delay between requests
-        //     Thread.sleep(delay);
-        // } catch (Exception e){}
-        // if (delay%2 == 0){
-        //     // if delay is even, send a read request
-        //     getSelf().tell(new ReadRequestMsg(getSelf()), ActorRef.noSender());
-        // } else {
-        //     // if delay is odd, send a write request with a random number
-        //     getSelf().tell(new WriteRequestMsg(getSelf(), rnd.nextInt(100)), ActorRef.noSender());
-        // }
-    }
-
-    /* --------------------------------------------------------- */
-
-    // Here we define the mapping between the received message types
-    // and our actor methods
-    @Override
-    public Receive createReceive() {
-        return receiveBuilder()
-            .match(JoinGroupMsg.class, this::onJoinGroupMsg)
-            .match(ReadResponseMsg.class, this::onReadResponseMsg)
-            .match(ReadRequestMsg.class, this::onReadRequestMsg)
-            .match(WriteRequestMsg.class, this::onWriteRequestMsg)
-            .match(ReadRequestTimeoutMsg.class, this::onReadRequestTimeoutMsg)
-            .match(WriteRequestTimeoutMsg.class, this::onWriteRequestTimeoutMsg)
-            .match(WriteAckMsg.class, this::onWriteAckMsg)
-            .build();
-    }
-    
-    @Override
-    public void postStop() {
-        if (requestScheduler != null && !requestScheduler.isCancelled()){
-            requestScheduler.cancel();
-        }
-        if (readRequestTimeout != null && !readRequestTimeout.isCancelled()) {
-            readRequestTimeout.cancel();
-        }
-        if (writeRequestTimeout != null && !writeRequestTimeout.isCancelled()) {
-            writeRequestTimeout.cancel();
-        }
-    }
 }

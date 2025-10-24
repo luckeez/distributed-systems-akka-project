@@ -1,843 +1,806 @@
-    package it.unitn.ds1;
+package it.unitn.ds1;
 
-import java.io.Serializable;
-import java.time.Duration;
-import java.util.*;
-import java.util.concurrent.CopyOnWriteArrayList;
-
-import org.slf4j.MDC;
-
+import akka.actor.ActorRef;
+import akka.actor.AbstractActor;
 import akka.actor.Cancellable;
+import akka.actor.Props;
 import akka.event.Logging;
 import akka.event.LoggingAdapter;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import akka.actor.AbstractActor;
-import akka.actor.Props;
-import akka.actor.ActorRef;
-
 import it.unitn.ds1.debug.Colors;
+import scala.concurrent.duration.Duration;
+
+import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Set;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.TimeUnit;
 
 public class Replica extends AbstractActor {
-    private final LoggingAdapter log = Logging.getLogger(getContext().getSystem(), this);
-    private final Logger schedulerLogger = LoggerFactory.getLogger("getInfo");
-    private final int id;
-    private int v = 12;
-    private List<ActorRef> peers = new ArrayList<>();
-    private boolean isCoordinator;
-    private final int crashP = 5;
-    private final Random rnd;
-    private ActorRef coordinator;
-    private int epoch;
-    private int seqNum;
-    private final int quorumSize;
-    private int ackCount = 1;
-    private UpdateMsg pendingUpdate;
-    private Cancellable writeTimeout;
-    private Cancellable heartbeatTimeout;
-    private Cancellable crashTimeout;
-    private final int heartbeatInterval = 1; // seconds
-    private final int heartbeatTimeoutDuration = 3; // seconds
-    private HashMap<ActorRef, Cancellable> replicaTimeouts = new HashMap<>();
-    private List<UpdateMsg> updates = new ArrayList<>();
-    //DEV
-    private enum State{
-        CRASHED,
-        RUNNING
-    }
-    private State currentState = State.RUNNING;
-    // public enum DebugAction{
-    //     UPDATE_SENDING,
-    //     UPDATE_RECEIVING,
-    //     WRITEOK_SENDING,
-    //     ELECTION,
-    //     DEFAULT
-    // }
-    // private DebugAction debugAction = DebugAction.DEFAULT;
+  private final LoggingAdapter log = Logging.getLogger(getContext().getSystem(), this);
+  private final int replicaId;
+  private int currentValue = 0;
+  private int currentEpoch = 0;
+  private int currentSequenceNumber = 0;
+  private boolean isCoordinator = false;
+  private int coordinatorId = 0;
+  private final int quorumSize;
+  private boolean crashed = false;
 
-    // CONSTRUCTOR
-    public Replica(int id, boolean isCoordinator, ActorRef coordinator, int N){
-        this.id = id;
-        // MDC.put("actorName", String.valueOf(this.id));
-        this.isCoordinator = isCoordinator;
-        this.rnd = new Random();
-        this.quorumSize = (N / 2) + 1; // Majority quorum
-        this.epoch = 0;
-        this.seqNum = 0;
-        if (isCoordinator && coordinator == null){
-            this.coordinator = getSelf();
-            this.heartbeatTimeout = getContext().system().scheduler().scheduleWithFixedDelay(
-                    Duration.ZERO,
-                    Duration.ofSeconds(heartbeatInterval),
-                    this::sendHeartbeat,
-                    getContext().system().dispatcher()
-            );
-        } else {
-            this.coordinator = coordinator;
+  private List<ActorRef> replicas = new ArrayList<>();
+  private Map<Messages.UpdateId, Integer> pendingAcks = new HashMap<>();
+  private Map<Messages.UpdateId, Messages.Update> pendingUpdates = new HashMap<>();
+  private List<Messages.Update> updateHistory = new ArrayList<>();
+
+  private Cancellable heartBeatSchedule;
+  private Cancellable updateTimeout;
+  private Cancellable heartBeatTimeout;
+  private Map<String, Cancellable> replicaTimeouts;
+  private Cancellable electionAckTimeout;
+  private Cancellable electionTimeout;
+
+  private boolean electionInProgress = false;
+
+  private Messages.CrashPoint crashPoint = null;
+  private int crashAfterOperations = 0;
+  private Map<Messages.CrashPoint, Integer> operationCounts = new HashMap<>();
+
+  {
+    for (Messages.CrashPoint point : Messages.CrashPoint.values()) {
+      operationCounts.put(point, 0);
+    }
+  }
+
+  public Replica(int replicaId, int quorumSize) {
+    this.replicaId = replicaId;
+    this.quorumSize = quorumSize;
+    this.isCoordinator = (replicaId == 0);
+    this.coordinatorId = 0;
+  }
+
+  static public Props props(int id, int quorumSize) {
+    return Props.create(Replica.class, () -> new Replica(id, quorumSize));
+  }
+
+  @Override
+  public void preStart() {
+    if (isCoordinator) {
+
+      getContext().become(coordinator());
+      scheduleHeartBeat();
+      scheduleReplicaTimeouts();
+    }
+
+    scheduleHeartBeatTimeout();
+
+  }
+
+  final AbstractActor.Receive crashed() {
+    return receiveBuilder()
+        .matchAny(msg -> {
+        })
+        .build();
+  }
+
+  final AbstractActor.Receive coordinator() {
+    return receiveBuilder()
+        .match(Messages.Initialize.class, this::onInitialize)
+        .match(Messages.ReadRequest.class, this::onReadRequest)
+        .match(Messages.WriteRequest.class, this::onWriteRequest)
+        .match(Messages.Ack.class, this::onAck)
+        .match(Messages.HeartBeatAck.class, this::onHeartBeatAck)
+        .match(Messages.Crash.class, this::onCrash)
+        .match(Messages.GetState.class, this::onGetState)
+        .match(Messages.Timeout.class, this::onTimeout)
+        .match(Messages.ReplicaTimeout.class, this::onReplicaTimeout)
+        .match(Messages.SetCrashPoint.class, this::onSetCrashPoint)
+        .match(Messages.Crash.class, this::onCrash)
+        .matchAny(msg -> {
+          log.info("Coordinator " + replicaId + " ignoring message " + msg.getClass().getSimpleName());
+        })
+        .build();
+  }
+
+  @Override
+  public void postStop() {
+    cancelTimeouts();
+  }
+
+  @Override
+  public Receive createReceive() {
+    return receiveBuilder()
+        .match(Messages.Initialize.class, this::onInitialize)
+        .match(Messages.ReadRequest.class, this::onReadRequest)
+        .match(Messages.WriteRequest.class, this::onWriteRequest)
+        .match(Messages.Update.class, this::onUpdate)
+        .match(Messages.WriteOk.class, this::onWriteOk)
+        .match(Messages.HeartBeat.class, this::onHeartBeat)
+        .match(Messages.HeartBeatTimeout.class, this::onHeartBeatTimeout)
+        .match(Messages.DetectedReplicaFailure.class, this::onDetectedReplicaFailure)
+        .match(Messages.Election.class, this::onElection)
+        .match(Messages.Timeout.class, this::onTimeout)
+        .match(Messages.Synchronization.class, this::onSynchronization)
+        .match(Messages.Crash.class, this::onCrash)
+        .match(Messages.SetCrashPoint.class, this::onSetCrashPoint)
+        .match(Messages.GetState.class, this::onGetState)
+        .match(Messages.ElectionAck.class, this::onElectionAck)
+        .match(Messages.ElectionAckTimeout.class, this::onElectionAckTimeout)
+        .match(Messages.StartElection.class, msg -> startElection())
+        .match(Messages.NewCoordinator.class, msg -> becomeCoordinator(msg.knownUpdates))
+        .build();
+  }
+
+  // HELPERS
+
+  private boolean shouldCrash(Messages.CrashPoint point) {
+    if (this.crashed || point == null || this.crashPoint != point || this.replicas.size() <= this.quorumSize) {
+      return false;
+    }
+    int currentCount = this.operationCounts.get(point);
+    this.operationCounts.put(point, currentCount + 1);
+
+    if (currentCount >= this.crashAfterOperations) {
+      log.info(Colors.RED +
+          "Replica " + this.replicaId + " crashing at " + point + " after " + currentCount + " operations"
+          + Colors.RESET);
+      crash();
+      return true;
+    }
+
+    return false;
+  }
+
+  private void crash() {
+    this.crashed = true;
+    cancelTimeouts();
+    getContext().become(crashed());
+  }
+
+  private void introduceNetworkDelay() {
+    try {
+      Thread.sleep(ThreadLocalRandom.current().nextInt(10, 50));
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+    }
+  }
+
+  private void scheduleReplicaTimeouts() {
+    this.replicaTimeouts = new HashMap<>();
+    for (ActorRef replica : this.replicas) {
+      String name = replica.path().name();
+      if (!replica.equals(getSelf())) {
+        resetReplicaTimeout(name);
+        // log.info("Coordinator " + this.replicaId + " scheduling timeout for " +
+        // name); // necessary?
+      } else {
+        if (this.replicaTimeouts.get(name) != null) {
+          this.replicaTimeouts.get(name).cancel();
         }
-        // Schedule periodic crash decision
-        this.crashTimeout = getContext().system().scheduler().scheduleWithFixedDelay(
-                Duration.ZERO,
-                Duration.ofSeconds(2),
-                this::decideCrash,
-                getContext().system().dispatcher()
-        );
+      }
+    }
+  }
+
+  private void resetReplicaTimeout(String name) {
+    if (this.replicaTimeouts.get(name) != null) {
+      this.replicaTimeouts.get(name).cancel();
+    }
+    if (this.isCoordinator) {
+      // Schedule a new timeout
+      Cancellable timeout = getContext().system().scheduler().scheduleOnce(
+          Duration.create(5, TimeUnit.SECONDS),
+          getSelf(),
+          new Messages.ReplicaTimeout(Integer.parseInt(name.replace("Replica", ""))),
+          getContext().system().dispatcher(),
+          getSelf());
+      // Store the timeout for the replica
+      this.replicaTimeouts.put(name, timeout);
+    }
+  }
+
+  private void resetElectionTimeout() {
+    if (this.electionTimeout != null) {
+      this.electionTimeout.cancel();
+    }
+  }
+
+  private void scheduleHeartBeatTimeout() {
+    if (!this.isCoordinator) {
+      resetHeartBeatTimeout();
+    }
+  }
+
+  private void scheduleHeartBeat() {
+    if (this.heartBeatSchedule != null) {
+      this.heartBeatSchedule.cancel();
     }
 
-    static public Props props(int id, boolean isCoordinator, ActorRef coordinator, int N){
-        return Props.create(Replica.class, () -> new Replica(id, isCoordinator, coordinator, N));
-    }
-
-    public int getId(){
-        return this.id;
-    }
-
-    /*-- Message classes ------------------------------------------------------ */
-
-    // Start message that informs every participant about its peers
-    public static class JoinGroupMsg implements Serializable {
-        public final List<ActorRef> group;   // an array of group members
-        public JoinGroupMsg(List<ActorRef> group) {
-            this.group = Collections.unmodifiableList(new ArrayList<ActorRef>(group));
-        }
-    }
-
-    public static class UpdateMsg implements Serializable {
-        public final int epoch;
-        public final int seqNum;
-        // public final int newV;
-        public int newV; // DEV
-
-        public UpdateMsg(int epoch, int seqNum, int newV) {
-            this.epoch = epoch;
-            this.seqNum = seqNum;
-            this.newV = newV;
-        }
-    }
-
-    public static class AckMsg implements Serializable {
-        public final int epoch;
-        public final int seqNum;
-
-        public AckMsg(int epoch, int seqNum) {
-            this.epoch = epoch;
-            this.seqNum = seqNum;
-        }
-    }
-
-    public static class WriteOkMsg implements Serializable {
-        public final int epoch;
-        public final int seqNum;
-
-        public WriteOkMsg(int epoch, int seqNum) {
-            this.epoch = epoch;
-            this.seqNum = seqNum;
-        }
-    }
-
-    public static class ReadRequestMsg implements Serializable {
-        public final ActorRef sender;
-        public ReadRequestMsg(ActorRef sender) {
-            this.sender = sender;
-        }
-    }
-
-    public static class WriteRequestMsg implements Serializable {
-        public final ActorRef sender;
-        //public final int proposedV;
-        public int proposedV;
-
-        public WriteRequestMsg(ActorRef sender, int proposedV) {
-            this.sender = sender;
-            this.proposedV = proposedV;
-        }
-    }
-
-    public static class HeartbeatMsg implements Serializable {
-        public final int epoch;
-        public final int seqNum;
-
-        public HeartbeatMsg(int epoch, int seqNum) {
-            this.epoch = epoch;
-            this.seqNum = seqNum;
-        }
-    }
-
-    public static class HeartbeatAckMsg implements Serializable {
-        public final int replicaId;
-
-        public HeartbeatAckMsg(int replicaId) {
-            this.replicaId = replicaId;
-        }
-    }
-
-    public static class TimeoutMsg implements Serializable {
-        public TimeoutMsg() {}
-    }
-
-        public static class WriteTimeoutMsg implements Serializable {
-        public WriteTimeoutMsg() {}
-    }
-
-    public static class ReplicaTimeoutMsg implements Serializable {
-        public final ActorRef replica;
-
-        public ReplicaTimeoutMsg(ActorRef replica) {
-            this.replica = replica;
-        }
-    }
-
-    //DEV
-    public static class CoordinatorCrashMsg implements Serializable {
-        public CoordinatorCrashMsg() {}
-    }
-
-    // DEV
-    public static class ReplicaCrashMsg implements Serializable {
-        public ReplicaCrashMsg() {}
-    }
-
-    // // DEV
-    // public static class DebugMsg implements Serializable {
-    //     public final DebugAction action;
-
-    //     public DebugMsg(DebugAction action) {
-    //         this.action = action;
-    //     }
-    // }
-
-    public static class LeaderElectionMsg implements Serializable {
-        public final int epoch;
-        public final int seqNum;
-        public final ActorRef sender;
-        public final int candidateId;
-        // public final ArrayList<ActorRef> notifiedReplicas;
-
-
-        public LeaderElectionMsg(int epoch, int seqNum, ActorRef sender, int candidateId) {// , ArrayList<ActorRef> notifiedReplicas) {
-            this.epoch = epoch;
-            this.seqNum = seqNum;
-            this.sender = sender;
-            this.candidateId = candidateId;
-            // this.notifiedReplicas = notifiedReplicas;
-
-        }
-    }
-
-    public static class CoordinatorMsg implements Serializable {
-        public final ActorRef sender;
-        public final int candidateId;
-
-        public CoordinatorMsg (int candidateId, ActorRef sender) {
-            this.candidateId = candidateId;
-            this.sender = sender;
-        }
-
-    }
-
-    public static class SynchronizationMsg implements Serializable {
-        public final int epoch;
-        public final int seqNum;
-        public final ActorRef newCoordinator;
-        public final List<UpdateMsg> updates;
-
-        public SynchronizationMsg(int epoch, int seqNum, ActorRef newCoordinator, List<UpdateMsg> updates) {
-            this.epoch = epoch;
-            this.seqNum = seqNum;
-            this.newCoordinator = newCoordinator;
-            this.updates = updates;
-        }
-    }
-
-
-    // DEV
-    public static class GetInfoMsg implements Serializable {
-        public GetInfoMsg() {};
-    }
-
-    /*------------- Actor logic -------------------------------------------- */
-
-    private void onJoinGroupMsg(JoinGroupMsg msg){
-        for (ActorRef a : msg.group){
-            this.peers.add(a);  // copy all replicas (also itself because it is checked in multicast)
-        }
-        log.info("Replica {} joined group with {} peers", this.id, this.peers.size());
-    }
-
-    private void onReadRequestMsg(ReadRequestMsg msg){
-        ActorRef to = msg.sender;
-        //to.tell(new Client.ReadResponseMsg(this.v), getSelf());
-        tellToReplica(to, new Client.ReadResponseMsg(this.v));
-        log.info("Replica {} sent value {} to client", this.id, this.v);
-    }
-
-    private void onWriteRequestMsg(WriteRequestMsg msg){
-        // correctly handle both client messages and replicas messages
-        if (this.isCoordinator){
-            this.seqNum += 1;
-            this.pendingUpdate = new UpdateMsg(this.epoch, this.seqNum, msg.proposedV);
-            this.ackCount = 1;
-            // this.updates.add(pendingUpdate); // DEV
-
-            // IF crash while writing
-            this.writeTimeout = getContext().system().scheduler().scheduleOnce(
-                    Duration.ofSeconds(heartbeatTimeoutDuration),
-                    getSelf(),
-                    new WriteTimeoutMsg(),
-                    getContext().system().dispatcher(),
-                    getSelf()
-            );
-
-            // Broadcast UPDATE message to all replicas
-            // for (ActorRef peer: this.peers){
-            //     peer.tell(this.pendingUpdate, getSelf());
-            // }
-
-            // DEV
-            // DEBUG CRASH - during sending of update
-            if (msg.proposedV == 9999){
-                crash();
-                return;
+    // send an heartbeat message to each replica
+    this.heartBeatSchedule = getContext().getSystem().scheduler().scheduleAtFixedRate(
+        Duration.create(1, TimeUnit.SECONDS),
+        Duration.create(1, TimeUnit.SECONDS),
+        () -> {
+          if (!this.crashed && this.isCoordinator) {
+            for (ActorRef replica : this.replicas) {
+              if (!replica.equals(getSelf())) {
+                replica.tell(new Messages.HeartBeat(this.replicaId), getSelf());
+              }
             }
-            if (msg.proposedV == 6666){
-                multicast(this.pendingUpdate, this.peers, true);
-                return;
-            } else {
-                multicast(this.pendingUpdate, this.peers, false); // il coordinator deve settare timer quando invia update a tutti?
-            }
+          }
+        },
+        getContext().getDispatcher());
+  }
 
-            // DEV
-            // DEBUG CRASH - after sending of update
-            if (msg.proposedV == 8888){
-                crash();
-                return;
-            }
+  private void resetHeartBeatTimeout() {
+    if (this.heartBeatTimeout != null) {
+      this.heartBeatTimeout.cancel();
+    }
 
+    if (!this.isCoordinator) {
+      this.heartBeatTimeout = getContext().getSystem().scheduler().scheduleOnce(
+          Duration.create(3, TimeUnit.SECONDS),
+          getSelf(),
+          new Messages.HeartBeatTimeout(),
+          getContext().getDispatcher(),
+          getSelf());
+    }
+  }
 
-            tellToReplica(msg.sender, new Client.WriteAckMsg(msg.proposedV));
+  private void setElectionAckTimeout(Messages.Election msg) {
+    if (this.electionAckTimeout != null) {
+      this.electionAckTimeout.cancel();
+    }
 
-            log.info("Coordinator {} broadcasted update message with value {}", this.id, msg.proposedV);
-        } else {
-            // forward the message to coordinator
-            //this.coordinator.tell(msg, getSelf());
-            tellToReplica(this.coordinator, msg);
-            log.info("Replica {} forwarded write request to coordinator", this.id);
+    this.electionAckTimeout = getContext().getSystem().scheduler().scheduleOnce(
+        Duration.create(500, TimeUnit.MILLISECONDS),
+        getSelf(),
+        new Messages.ElectionAckTimeout(msg),
+        getContext().getDispatcher(),
+        getSelf());
+  }
+
+  private void cancelTimeouts() {
+    if (this.heartBeatSchedule != null) {
+      this.heartBeatSchedule.cancel();
+    }
+
+    if (this.heartBeatTimeout != null) {
+      this.heartBeatTimeout.cancel();
+    }
+
+    if (this.updateTimeout != null) {
+      this.updateTimeout.cancel();
+    }
+
+    if (this.replicaTimeouts != null) {
+      for (Entry<String, Cancellable> entry : this.replicaTimeouts.entrySet()) {
+        if (entry.getValue() != null) {
+          entry.getValue().cancel();
         }
+      }
     }
 
-    private void onUpdateMsg(UpdateMsg msg) {
-        // this.epoch = Math.max(this.epoch, msg.epoch);
-        // this.seqNum = Math.max(this.seqNum, msg.seqNum);
-        this.pendingUpdate = msg;
-        // this.updates.add(msg); // DEV
+  }
 
-        // DEV
-        // DEBUG CRASH - after receiving of update
-        // if (msg.newV == 7777){
-        //     crash();
-        //     return;
-        // }
+  private boolean alreadyServed(Messages.RequestInfo requestInfo) {
+    for (Messages.Update update : this.updateHistory) {
+      if (update.requestInfo != null && update.requestInfo.equals(requestInfo)) {
+        return true;
+      }
+    }
+    return false;
+  }
 
-        //getSender().tell(new AckMsg(msg.epoch, msg.seqNum), getSelf());
-        tellToReplica(getSender(), new AckMsg(msg.epoch, msg.seqNum));
-        log.info("Replica {} received update message with value {}", this.id, msg.newV);
+  private void startElection() {
+    if (this.electionInProgress || shouldCrash(Messages.CrashPoint.DURING_ELECTION))
+      return;
+    this.electionInProgress = true;
+    this.replicas.removeIf(r -> r.path().name().equals("Replica" + this.coordinatorId));
+    log.info("Replica " + this.replicaId + " started the election process");
+    Set<Messages.Update> knownPendingUpdates = new HashSet<>();
+    knownPendingUpdates.addAll(this.pendingUpdates.values());
+    Messages.Election msg = new Messages.Election(
+        this.replicaId,
+        this.replicaId,
+        getLastKnownUpdateId(),
+        knownPendingUpdates);
+    setElectionAckTimeout(msg);
+    forwardToNextReplica(msg);
+
+    if (shouldCrash(Messages.CrashPoint.DURING_ELECTION_INITIATOR)) {
+      return;
+    }
+  }
+
+  private void becomeCoordinator(Set<Messages.Update> knownPendingUpdates) {
+    if (this.isCoordinator)
+      return;
+
+    getContext().become(coordinator());
+
+    if (shouldCrash(Messages.CrashPoint.BEFORE_SYNCHRONIZATION))
+      return;
+    log.info(Colors.GREEN + "Replica " + this.replicaId + " becoming the new Coordinator" + Colors.RESET);
+
+    this.isCoordinator = true;
+    this.coordinatorId = replicaId;
+    this.currentEpoch++;
+    this.currentSequenceNumber = 0;
+
+    try {
+      Thread.sleep(500);
+    } catch (Exception e) {
+      e.printStackTrace();
     }
 
-    private void onAckMsg (AckMsg ack){
-        if (this.isCoordinator && ack.epoch == this.epoch && ack.seqNum == this.seqNum) {
-            this.ackCount += 1;
-            if (this.ackCount >= this.quorumSize) {
-                this.ackCount = 1;
+    // missed updates for synchronization
+    broadcast(new Messages.Synchronization(this.replicaId, this.updateHistory), null);
+    scheduleHeartBeat();
+    scheduleReplicaTimeouts();
 
-                // for (ActorRef peer: this.peers){
-                //     peer.tell(new WriteOkMsg(this.epoch, this.seqNum), getSelf());
-                // }
-
-                // DEV ???????????
-                // DEBUG CRASH - during sending writeoks
-                // if (msg.proposedV == 6666){
-                //     crash();
-                //     return;
-                // }
-
-                WriteOkMsg m = new WriteOkMsg(this.epoch, this.seqNum);
-
-                // DEV
-                if (this.pendingUpdate.newV == 7777){
-                    multicast(m, this.peers, true);
-                    return;
-                } else {
-                    multicast(m, this.peers, false);
-                }
-
-                this.v = this.pendingUpdate.newV;
-                this.updates.add(this.pendingUpdate); // DEV
-                this.pendingUpdate = null; // reset pending update // DEV
-                if (this.writeTimeout != null && !writeTimeout.isCancelled()) {
-                    this.writeTimeout.cancel();
-                }
-                log.info("Coordinator {} received enough acks, broadcasted write ok message", this.id);
-            }
-        }
+    int i = 0;
+    for (Messages.Update update : knownPendingUpdates) {
+      if (!this.updateHistory.contains(update)) {
+        log.info("Coordinator " + this.replicaId + " re-broadcasting pending update " + update.updateId + " value "
+            + update.value);
+        Messages.Update newUpdate = new Messages.Update(
+            new Messages.UpdateId(this.currentEpoch, this.currentSequenceNumber + i),
+            update.value, update.requestInfo);
+        this.pendingAcks.put(newUpdate.updateId, 0);
+        this.pendingUpdates.put(newUpdate.updateId, newUpdate);
+        broadcast(newUpdate, null);
+      }
+      i++;
     }
+    this.electionInProgress = false;
 
-    private void onWriteOkMsg(WriteOkMsg msg) {
-        this.epoch = Math.max(this.epoch, msg.epoch);
-        this.seqNum = Math.max(this.seqNum, msg.seqNum);
-        if (msg.epoch == this.epoch && msg.seqNum == this.seqNum) {
-            this.v = this.pendingUpdate.newV;
-            this.updates.add(this.pendingUpdate); // DEV
-            this.pendingUpdate = null; // reset pending update // DEV
-            if (this.writeTimeout != null && !writeTimeout.isCancelled()) {
-                 this.writeTimeout.cancel();
-            }
-            log.info(Colors.BLUE + "Replica {} update {}:{} {}" + Colors.RESET, this.id, this.epoch, this.seqNum, this.v);
-        } else {
-            log.error("Replica {} received write ok message with wrong epoch or seqNum", this.id);
-            log.info("Expected : ({},{}) \nGot ({},{})", this.epoch, this.seqNum, msg.epoch, msg.seqNum);
-        }
-    }
+    if (shouldCrash(Messages.CrashPoint.AFTER_SYNCHRONIZATION))
+      return;
+  }
 
-    // DEV
-    private void onGetInfoMsg(GetInfoMsg msg){
-        // private static final Logger schedulerLogger = LoggerFactory.getLogger("scheduler");
-
-        if (this.currentState == State.CRASHED){
-            String str = Colors.RED + this.currentState + Colors.RESET;
-            schedulerLogger.info("\n" + Colors.YELLOW + " REPLICA {} INFO" + Colors.RESET + "\nValue: {}   -   State: {}\nPeers: [ - ]\nEpoch and SeqNum - \nUpdates - \n", this.id, this.v, str);
-        } else {
-            // peers List cleaning
-            List<String> peersList = this.peers.stream()
-                .map(ref -> ref.path().toString()) 
-                .map(path -> path.replaceAll(".*/user/([^#]+).*", "$1")) 
-                .toList(); 
-
-            // updates list cleaning
-            List<String> updatesList = this.updates.stream()
-            .map(Object::toString) // Converte l'oggetto in stringa
-            .map(s -> s.substring(s.lastIndexOf('$') + 1)) // Estrai tutto dopo l'ultimo "."
-            .toList();
-
-            String state = Colors.GREEN + this.currentState + Colors.RESET;
-            String str_info = "Coordinator: " + Colors.CYAN + this.coordinator.toString().replaceAll(".*/user/([^#]+).*", "$1") + Colors.RESET + "\nPeers: " + peersList + "\n" + "Epoch and SeqNum " + this.epoch + " - " + this.seqNum + "\nUpdates " + updatesList;
-            schedulerLogger.info("\n" + Colors.YELLOW + " REPLICA {} INFO" + Colors.RESET + "\nValue: {}   -   State: {}   -   {}\n", this.id, this.v, state, str_info);
-        }
-    }
-
-    // DEV
-    private void onCoordinatorCrashMsg(CoordinatorCrashMsg msg){
-        if (this.isCoordinator){
-            log.info("Coordinator {} received console coordinator crash request", this.id);
-            crash();
-        } else {
-            tellToReplica(this.coordinator, msg);
-            log.info("Replica {} forwarded console coordinator crash request to coordinator", this.id);
-        }
-    }
-
-    // DEV
-    private void onReplicaCrashMsg(ReplicaCrashMsg msg){
-        if (!this.isCoordinator){
-            log.info("Replica {} received console replica crash request", this.id);
-            crash();
-        } else {}
-    }
-
-    // // DEV
-    // private void onDebugMsg(DebugMsg msg){
-    //     switch (msg.action){
-    //         case UPDATE_RECEIVING:
-    //             if (this.isCoordinator){
-    //                 tellToReplica(getSelf(), new WriteRequestMsg(getSelf(), 9999));
-    //             } else {
-    //                 tellToReplica(this.coordinator, new WriteRequestMsg(getSelf(), 9999));
-    //             }
-    //             break;
-    //         case UPDATE_SENDING:
-                
-    //             break;
-    //         case WRITEOK_SENDING:
-                
-    //             break;
-    //         case ELECTION:
-                
-    //             break;
-    //         case DEFAULT:
-    //             break;
-    //     }
-    // }
-
-    //------------------------- Crash detection system -------------------------\\
-
-    // when replica receives an heartbeat msg, it deletes its timeout -> coordinator is active
-    private void onHeartbeatMsg(HeartbeatMsg msg) {
-        // log.info("Replica {} received heartbeat message from coordinator", this.id);
-        resetHeartbeatTimeout();
-        // Send acknowledgment back to the coordinator
-        //getSender().tell(new HeartbeatAckMsg(this.id), getSelf());
-        tellToReplica(getSender(), new HeartbeatAckMsg(this.id));
-    }
-
-    // when coordinator receives heartbeatAckMsg, it deletes its replicaTimeout[replica] -> that replica is active 
-    private void onHeartbeatAckMsg(HeartbeatAckMsg msg) {
-        // log.info("Coordinator {} received heartbeat acknowledgment from replica {}", this.id, msg.replicaId);
-        resetReplicaTimeout(getSender());
-    }
-
-    // coordinator sends heartbeat to all replicas
-    private void sendHeartbeat(){
-        // if (this.isActive) {
-        // for (ActorRef peer : this.peers) {
-        //     peer.tell(new HeartbeatMsg(this.epoch, this.seqNum), getSelf());
-        // }
-        HeartbeatMsg m = new HeartbeatMsg(this.epoch, this.seqNum);
-        multicast(m, this.peers, false);
-        // }
-    }
-
-    // reset replica heartbeat timeout 
-    private void resetHeartbeatTimeout(){
-        if (this.heartbeatTimeout != null && !this.heartbeatTimeout.isCancelled()){
-            this.heartbeatTimeout.cancel();
-        }
-        this.heartbeatTimeout = getContext().system().scheduler().scheduleOnce(
-                Duration.ofSeconds(heartbeatTimeoutDuration),  // duration
-                getSelf(),   // receiver
-                new TimeoutMsg(), // message type
-                getContext().system().dispatcher(), // process
-                getSelf() // sender
-        );
-    }
-
-    // Replica detects a coordinator crash
-    private void onTimeoutMsg(TimeoutMsg msg) {
-        log.info(Colors.RED + "Replica {} detected a timeout, assuming coordinator {} CRASHED" + Colors.RESET, this.id, this.coordinator);
-        peers.remove(this.coordinator);
-
-        // peers list cleaning
-        List<String> peersList = this.peers.stream()
-        .map(ref -> ref.path().toString()) 
-        .map(path -> path.replaceAll(".*/user/([^#]+).*", "$1")) 
-        .toList(); 
-
-        log.warning(Colors.CYAN + "SONO {} e la mia lista di repliche è {}" + Colors.RESET, this.id, peersList);
-
-        if (peers.get(0) == getSelf()) { // TODO se coord e replica crash, no leader election
-            try {
-                Thread.sleep(1000);
-            } catch (InterruptedException e) {
-                e.printStackTrace();
-            }
-            String str_info = "(" + this.epoch + " - " + this.seqNum + ")";
-            log.warning(Colors.CYAN + "Replica {} {} starts a LEADER ELECTION" + Colors.RESET, this.id, str_info);
-
-            ActorRef nextReplica = getNextReplica();
-            if (nextReplica != null) {
-                ArrayList<ActorRef> notifiedReplicas = new ArrayList<>();
-                notifiedReplicas.add(getSelf());
-                tellToReplica(nextReplica, new LeaderElectionMsg(this.epoch, this.seqNum, getSelf(), this.id));//, notifiedReplicas));
-            } else {
-                // If this is the only replica left, it becomes the coordinator
-                selfElection();
-            }
-        }
-    }
-
-    private void onWriteTimeoutMsg(WriteTimeoutMsg msg){
-        log.info(Colors.RED + "Coordinator {} detected a timeout while WRITING, assuming replica  CRASHED" + Colors.RESET, this.id);
-    }
-
-    private void resetReplicaTimeout(ActorRef replica) {
-        if (replicaTimeouts.containsKey(replica)) {
-            replicaTimeouts.get(replica).cancel();
-        }
-
-        // Schedule a new timeout
-        Cancellable timeout = getContext().system().scheduler().scheduleOnce(
-            Duration.ofSeconds(heartbeatTimeoutDuration),
-            getSelf(),
-            new ReplicaTimeoutMsg(replica),
-            getContext().system().dispatcher(),
-            getSelf()
-        );
-        // Store the timeout for the replica
-        replicaTimeouts.put(replica, timeout);
-    }
-
-    private void onReplicaTimeoutMsg(ReplicaTimeoutMsg msg) {
-        if (getSelf() == this.coordinator) {
-            log.info("Coordinator {} detected a timeout for replica {}, assuming it CRASHED", this.id, msg.replica.path().name());
-            peers.remove(msg.replica);
-
-            ReplicaTimeoutMsg m = new ReplicaTimeoutMsg(msg.replica);
-            multicast(m, this.peers, false);
-
-        } else {
-            peers.remove(msg.replica);
-        }
-    }
-
-    private void decideCrash(){
-        
-        if (this.isCoordinator && this.rnd.nextInt(100) <= this.crashP && this.peers.size() > this.quorumSize) {
-            // crash();
-            log.warning(Colors.YELLOW + "I'm {} and I SHOULD CRASH" + Colors.RESET, this.id);
-        }
-        
-        // if (peers.size() > this.quorumSize && this.rnd.nextInt(100) <= this.crashP){
-        //     crash();
-        // }
-    }
-
-    private void crash(){
-        if (this.isCoordinator && heartbeatTimeout != null && !heartbeatTimeout.isCancelled()) {
-            heartbeatTimeout.cancel();
-        }
-        if (crashTimeout != null && !crashTimeout.isCancelled()) {
-            crashTimeout.cancel();
-        }   
-        log.error(Colors.RED + "SONO  FOTTUTAMENTE CRASHATO e sono {}" + Colors.RESET, this.id);
-        this.currentState = State.CRASHED;
-        getContext().become(crashed());
-        // this.isActive = false;
-    }
-
-    //------------------------- Communication system --------------------------\\
-
-    private void introduceNetworkDelay(){
-        try { Thread.sleep(rnd.nextInt(100)); }
-        catch (InterruptedException e) { e.printStackTrace(); }
-    }
-
-    private void multicast(Serializable m, List<ActorRef> multicastGroup, boolean crash){
-        CopyOnWriteArrayList<ActorRef> safeMulticastGroup = new CopyOnWriteArrayList<>(multicastGroup);
-        Iterator<ActorRef> iterator = safeMulticastGroup.iterator();
-        int count = 0;
-        while (iterator.hasNext()){
-            ActorRef peer = iterator.next();
-
-            // DEV
-            if (crash && count == 3){
-                log.info(Colors.RED + "Replica {} CRASHES during multicast" + Colors.RESET, this.id);
-                crash();
-                return;
-            }
-
-            if (!peer.equals(getSelf())){
-
-                // simulate network delay
-                introduceNetworkDelay();
-                peer.tell(m, getSelf());
-                count++; 
-            }
-        }
-    }
-
-    private void tellToReplica(ActorRef recipient, Serializable m){
+  private void forwardToCoordinator(Serializable msg) {
+    for (ActorRef replica : this.replicas) {
+      if (replica.path().name().equals("Replica" + this.coordinatorId)) {
         introduceNetworkDelay();
-        recipient.tell(m, getSelf());
+        replica.tell(msg, getSelf());
+        return;
+      }
+    }
+  }
+
+  private boolean broadcast(Serializable msg, Messages.CrashPoint crashPoint) {
+    for (ActorRef replica : this.replicas) {
+      if (replica == getSelf())
+        continue;
+      if (shouldCrash(crashPoint))
+        return true;
+      introduceNetworkDelay();
+      replica.tell(msg, getSelf());
+    }
+    return false;
+  }
+
+  private boolean isAlive(int replicaId) {
+    for (ActorRef replica : this.replicas) {
+      if (replica.path().name().equals("Replica" + replicaId)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private ActorRef getNextReplica() {
+    int nextReplica = 0;
+    for (int i = 0; i < this.replicas.size(); i++) {
+      if (this.replicas.get(i).equals(getSelf())) {
+        nextReplica = (i + 1) % this.replicas.size();
+        break;
+      }
+    }
+    return this.replicas.get(nextReplica);
+  }
+
+  private void forwardToNextReplica(Serializable msg) {
+    introduceNetworkDelay();
+    getNextReplica().tell(msg, getSelf());
+  }
+
+  private void tellToReplica(Serializable msg, int replicaId) {
+    for (ActorRef replica : this.replicas) {
+      if (replica.path().name().equals("Replica" + replicaId)) {
+        introduceNetworkDelay();
+        replica.tell(msg, getSelf());
+        return;
+      }
+    }
+  }
+
+  private void applyUpdates(List<Messages.Update> knownUpdates) {
+    for (Messages.Update update : knownUpdates) {
+      if (!this.updateHistory.contains(update)) {
+        this.updateHistory.add(update);
+        log.info(Colors.GREEN + "Replica " + this.replicaId + " update " + update.updateId + " value " + update.value
+            + Colors.RESET);
+      }
     }
 
-    //------------------------- Leader election system -------------------------\\
+    this.updateHistory.sort((u1, u2) -> u1.updateId.compareTo(u2.updateId));
+    this.currentValue = this.updateHistory.isEmpty() ? 0 : getLastKnownUpdate().value;
+  }
 
-    private void onLeaderElectionMsg(LeaderElectionMsg msg) {
-        String str_info = "(" + this.epoch + " - " + this.seqNum + ")";
-        log.info(Colors.YELLOW + "Replica {} {} received ELECTION message from {} with candidateId {}" + Colors.RESET, this.id, str_info, msg.sender.path().name(), msg.candidateId);
+  private void applyUpdate(Messages.Update update) {
+    if (this.updateHistory.contains(update))
+      return;
+    this.updateHistory.add(update);
+    this.currentValue = update.value;
+    this.currentSequenceNumber++;
+    if (this.isCoordinator) {
+      log.info(Colors.GREEN + "Coordinator " + this.replicaId + " update " + update.updateId + " " + update.value
+          + Colors.RESET);
+    } else {
+      log.info(Colors.GREEN + "Replica " + this.replicaId + " update " + update.updateId + " " + update.value
+          + Colors.RESET);
+    }
+  }
 
-        // DEV
-        // DEBUG CRASH - during election
+  private Messages.Update getLastKnownUpdate() {
+    if (this.updateHistory.isEmpty()) {
+      return null;
+    } else {
+      return this.updateHistory.get(this.updateHistory.size() - 1);
+    }
+  }
 
-        // Determine if the current replica should be the new candidate
-        boolean isBetterCandidate = (this.epoch > msg.epoch) ||
-                (msg.epoch == this.epoch && this.seqNum > msg.seqNum) ||
-                (msg.epoch == this.epoch && msg.seqNum == this.seqNum && this.id > msg.candidateId);
+  private Messages.UpdateId getLastKnownUpdateId() {
+    Messages.Update lastUpdate = getLastKnownUpdate();
+    if (lastUpdate == null) {
+      return new Messages.UpdateId(0, -1);
+    } else {
+      return lastUpdate.updateId;
+    }
+  }
 
-        // If I'm the best candidate, use my data, otherwise use msg data
-        int newCandidateId = isBetterCandidate ? this.id : msg.candidateId;
-        int newEpoch = isBetterCandidate ? this.epoch : msg.epoch;
-        int newSeqNum = isBetterCandidate ? this.seqNum : msg.seqNum;
+  // onRS
+  private void onInitialize(Messages.Initialize msg) {
+    if (this.crashed)
+      return;
+    this.replicas = new ArrayList<>(msg.replicas);
+    log.info(
+        Colors.GREEN + "Replica " + this.replicaId + " initialized with " + this.replicas.size() + " replicas"
+            + Colors.RESET);
 
-        // Forward the election message to the next replica in the ring
-        ActorRef nextReplica = getNextReplica();
-        if (nextReplica == null){
-            // If this is the only replica left, it becomes the coordinator (it is impossible but avoid warnings)
-            selfElection();
+  }
+
+  private void onReadRequest(Messages.ReadRequest msg) {
+    if (this.crashed)
+      return;
+    if (!getSender().path().name().equals("Client2"))
+      log.info("Replica " + this.replicaId + " received read request from " + getSender().path().name());
+    introduceNetworkDelay();
+    getSender().tell(new Messages.ReadResponse(this.currentValue), getSelf());
+  }
+
+  private void onWriteRequest(Messages.WriteRequest msg) {
+    if (this.crashed)
+      return;
+
+    if (this.isCoordinator) {
+      if (alreadyServed(msg.requestInfo)) {
+        introduceNetworkDelay();
+        msg.requestInfo.client.tell(new Messages.WriteResponse(true, msg.requestInfo), getSelf());
+        log.info("Coordinator " + this.replicaId + " already served request with " + msg.requestInfo.toString());
+        return;
+      }
+
+      if (shouldCrash(Messages.CrashPoint.BEFORE_SENDING_UPDATE))
+        return;
+
+      Messages.UpdateId updateId = new Messages.UpdateId(this.currentEpoch, this.currentSequenceNumber);
+
+      if (this.pendingUpdates.containsKey(updateId)) {
+        Messages.UpdateId lastUpdate = pendingUpdates.keySet().stream().max(Messages.UpdateId::compareTo).get();
+        updateId = new Messages.UpdateId(lastUpdate.epoch, lastUpdate.sequenceNumber + 1);
+      }
+      Messages.Update update = new Messages.Update(updateId, msg.value, msg.requestInfo);
+
+      log.info(
+          Colors.CYAN + "Coordinator " + this.replicaId + " initiating update " + updateId + " value " + update.value +
+              Colors.RESET);
+
+      this.pendingUpdates.put(updateId, update);
+      this.pendingAcks.put(updateId, 0);
+
+      log.info("Coordinator " + this.replicaId + " broadcasting update " + updateId + " value " + update.value);
+      broadcast(update, Messages.CrashPoint.DURING_SENDING_UPDATE);
+
+      if (shouldCrash(Messages.CrashPoint.AFTER_SENDING_UPDATE))
+        return;
+    } else {
+      introduceNetworkDelay();
+      log.info("Replica " + this.replicaId + " forwarding write request to coordinator " + this.coordinatorId);
+      forwardToCoordinator(new Messages.WriteRequest(msg.value, msg.requestInfo));
+    }
+    if (this.updateTimeout != null) {
+      this.updateTimeout.cancel();
+    }
+    // this.updateTimeout = getContext().getSystem().scheduler().scheduleOnce(
+    // Duration.create(2, TimeUnit.SECONDS),
+    // getSelf(),
+    // new Messages.Timeout(),
+    // getContext().getDispatcher(),
+    // getSelf());
+
+  }
+
+  private void onUpdate(Messages.Update msg) {
+
+    if (this.updateTimeout != null) {
+      this.updateTimeout.cancel();
+    }
+
+    log.info(Colors.CYAN + "Replica " + this.replicaId + " received update " + msg.updateId + " value " + msg.value +
+        Colors.RESET);
+
+    if (shouldCrash(Messages.CrashPoint.AFTER_RECEIVING_UPDATE))
+      return;
+
+    this.pendingUpdates.putIfAbsent(msg.updateId, msg);
+
+    if (shouldCrash(Messages.CrashPoint.BEFORE_SENDING_ACK))
+      return;
+    log.info("Replica " + this.replicaId + " sending Ack for update " + msg.updateId);
+
+    introduceNetworkDelay();
+    getSender().tell(new Messages.Ack(msg.updateId), getSelf());
+
+    if (shouldCrash(Messages.CrashPoint.AFTER_SENDING_ACK))
+      return;
+  }
+
+  private void onElectionAck(Messages.ElectionAck msg) {
+    if (this.electionAckTimeout != null) {
+      this.electionAckTimeout.cancel();
+    }
+  }
+
+  private void onAck(Messages.Ack msg) {
+    if (this.pendingAcks.containsKey(msg.updateId)) {
+      int currentAcks = pendingAcks.get(msg.updateId);
+      this.pendingAcks.put(msg.updateId, ++currentAcks);
+
+      // check if quorum is reached. +1 because the coordinator implicitly acks
+      if (currentAcks + 1 >= this.quorumSize) {
+        log.info("Coordinator " + this.replicaId + " received quorum for update " + msg.updateId);
+
+        if (shouldCrash(Messages.CrashPoint.BEFORE_SENDING_WRITEOK))
+          return;
+
+        Messages.Update update = this.pendingUpdates.get(msg.updateId);
+        applyUpdate(update);
+        Messages.WriteOk writeOk = new Messages.WriteOk(msg.updateId);
+
+        log.info("Coordinator " + this.replicaId + " broadcasting WriteOk for update " + msg.updateId);
+        if (broadcast(writeOk, Messages.CrashPoint.DURING_SENDING_WRITEOK))
+          return;
+
+        if (shouldCrash(Messages.CrashPoint.AFTER_SENDING_WRITEOK))
+          return;
+
+        // notify the client that the write was successful
+        update.requestInfo.client.tell(new Messages.WriteResponse(true, update.requestInfo), getSelf());
+
+        // clean up
+        this.pendingAcks.remove(msg.updateId);
+        this.pendingUpdates.remove(msg.updateId);
+
+        if (this.updateTimeout != null) {
+          this.updateTimeout.cancel();
         }
-        // } else if (!msg.notifiedReplicas.contains(getSelf())) {
-        //     msg.notifiedReplicas.add(getSelf());
-        //     //nextReplica.tell(new LeaderElectionMsg(newEpoch, newSeqNum, getSelf(), newCandidateId, new ArrayList<>(msg.notifiedReplicas)), getSelf());
-        //     tellToReplica(nextReplica, new LeaderElectionMsg(newEpoch, newSeqNum, getSelf(), newCandidateId, new ArrayList<>(msg.notifiedReplicas)));
-        // } else {
-        //    //nextReplica.tell(new CoordinatorMsg(newCandidateId, getSelf()), getSelf());
-        //    tellToReplica(nextReplica, new CoordinatorMsg(newCandidateId, getSelf()));
-        // }
+      }
+    }
+  }
 
+  private void onWriteOk(Messages.WriteOk msg) {
 
-        if (msg.candidateId == this.id) {
-            // Giro completato: io sono il nuovo coordinatore
-            // this.isCoordinator = true;
-            // this.coordinator = getSelf();
-            // this.epoch = this.epoch + 1; // nuovo epoch
-            // log.info("Replica {} diventa COORDINATORE (epoch {})", this.id, this.epoch);
-            selfElection();
-
-            tellUpdates();
-            
-            // annuncio la vittoria
-            // tellToReplica(getNextReplica(), new CoordinatorMsg(this.id, getSelf(), this.epoch));
-        } else {
-            // giro non completo → inoltro il messaggio
-            tellToReplica(nextReplica, new LeaderElectionMsg(newEpoch, newSeqNum, getSelf(), newCandidateId));
-        }
-
+    Messages.Update update = this.pendingUpdates.get(msg.updateId);
+    if (update != null) {
+      applyUpdate(update);
+      this.pendingUpdates.remove(msg.updateId);
+    } else {
+      return;
     }
 
-    // private void onCoordinatorMsg(CoordinatorMsg msg) {
-    //     log.info(Colors.YELLOW + "Replica {} received COORDINATOR message from {} with candidateId {}" + Colors.RESET, this.id, msg.sender.path().name(), msg.candidateId);
-    //     ActorRef nextReplica = getNextReplica();
-    //     if (msg.candidateId == this.id || nextReplica == null) {
-    //         selfElection();
-    //         // DEV
-    //         log.info("Self Election replica {}", this.id);
-    //     } else {
-    //         //nextReplica.tell(new CoordinatorMsg(msg.candidateId, getSelf()), getSelf());
-    //         tellToReplica(nextReplica, new CoordinatorMsg(msg.candidateId, getSelf()));
-    //     }
-    // }
+    if (shouldCrash(Messages.CrashPoint.AFTER_RECEIVING_WRITEOK))
+      return;
+  }
 
-    private void onSynchronizationMsg(SynchronizationMsg msg) {
-        log.info("Replica {} received synchronization message from new coordinator {}", this.id, msg.newCoordinator);
+  private void onHeartBeat(Messages.HeartBeat msg) {
+    resetHeartBeatTimeout();
+    introduceNetworkDelay();
+    getSender().tell(new Messages.HeartBeatAck(this.replicaId), getSelf());
+  }
 
-        // Synchronize updates
-        // update messages before storing new info
-        for (UpdateMsg update : msg.updates) {
-            // DEV
-            if (!this.updates.contains(update)) {
-                this.updates.add(update);
-                this.seqNum = update.seqNum;
-                this.v = update.newV;
-                log.info("Replica {} synchronized update with seqNum {} and value {}", this.id, update.seqNum, update.newV);
-            }
+  private void onHeartBeatAck(Messages.HeartBeatAck msg) {
+    String name = "Replica" + msg.replicaId;
+    resetReplicaTimeout(name);
+  }
 
+  private void onHeartBeatTimeout(Messages.HeartBeatTimeout msg) {
+    this.electionInProgress = false;
+    log.info(
+        Colors.RED + "Replica " + this.replicaId + " detected coordinator failure of replica " + this.coordinatorId +
+            Colors.RESET);
 
-            // if (update.seqNum > this.seqNum) {
-            //     this.seqNum = update.seqNum;
-            //     this.v = update.newV;
-            //     log.info("Replica {} synchronized update with seqNum {} and value {}", this.id, update.seqNum, update.newV);
-            // }
-        }
-        // this.v = msg.updates.getLast().newV; // DEV
-        this.coordinator = msg.newCoordinator;
-        this.epoch = msg.epoch;
-        this.seqNum = msg.seqNum;
-        this.isCoordinator = (msg.newCoordinator == getSelf());
-        log.info("Replica {}: My coordinator is {}", this.id, this.coordinator);
+    // Start election
+    if (!this.electionInProgress) {
+      getContext().getSystem().scheduler().scheduleOnce(
+          Duration.create(this.replicaId * 80, TimeUnit.MILLISECONDS),
+          getSelf(),
+          new Messages.StartElection(),
+          getContext().getDispatcher(),
+          getSelf());
+    }
+    // Timeout to check if the election was successful
+    this.electionTimeout = getContext().getSystem().scheduler().scheduleOnce(
+        Duration.create(10, TimeUnit.SECONDS),
+        getSelf(),
+        new Messages.HeartBeatTimeout(),
+        getContext().getDispatcher(),
+        getSelf());
+  }
 
-        // this.updates =  msg.updates; provaaaaa
-        resetHeartbeatTimeout();
+  private void onReplicaTimeout(Messages.ReplicaTimeout msg) {
+
+    log.warning(Colors.RED + "Coordinator " + this.replicaId + " detected failure of replica " + msg.replicaId +
+        Colors.RESET);
+
+    // remove the crashed replica from the group
+    this.replicas.removeIf(r -> r.path().name().equals("Replica" + msg.replicaId));
+
+    // notify the detected failure to other replicas
+    broadcast(new Messages.DetectedReplicaFailure(msg.replicaId), null);
+  }
+
+  private void onElectionAckTimeout(Messages.ElectionAckTimeout msg) {
+    ActorRef nextReplica = getNextReplica();
+    int nextReplicaInt = Integer.parseInt(nextReplica.path().name().replace("Replica", ""));
+    this.replicas.removeIf(r -> r.equals(nextReplica));
+    log.info(Colors.RED + "Replica " + this.replicaId + " timeout waiting for election ack from " +
+        nextReplica.path().name() + ", assuming it crashed" + Colors.RESET);
+    broadcast(new Messages.DetectedReplicaFailure(nextReplicaInt), null);
+
+    if (nextReplicaInt == msg.msg.initiatorId) {
+      log.info(Colors.BLUE + "Replica " + this.replicaId + " restarting election process since the initiator crashed"
+          + Colors.RESET);
+      this.electionInProgress = false;
+      startElection();
+      return;
+    }
+    setElectionAckTimeout(msg.msg);
+    forwardToNextReplica(msg.msg);
+  }
+
+  private void onTimeout(Messages.Timeout msg) {
+    if (this.isCoordinator) {
+      log.info("Coordinator " + this.replicaId + " timeout waiting for acks");
+      // TODO: think about what to do if the coordinator times out waiting for ACKs
+    } else {
+      log.info("Replica " + this.replicaId + " timeout waiting for update message, starting eletion process...");
+      startElection();
+    }
+  }
+
+  private void onDetectedReplicaFailure(Messages.DetectedReplicaFailure msg) {
+    log.warning(Colors.RED +
+        "Replica " + this.replicaId + " received ReplicaFailure message, replica" + msg.failedReplicaId
+        + " crashed" +
+        Colors.RESET);
+
+    // the replica received the failure notication of another replica from the
+    // coordinator
+    // and proceed to remove the replica from the group
+    this.replicas.removeIf(r -> r.path().name().equals("Replica" + msg.failedReplicaId));
+  }
+
+  private void onElection(Messages.Election msg) {
+    if (shouldCrash(Messages.CrashPoint.DURING_ELECTION))
+      return;
+
+    if (!isAlive(msg.initiatorId)) {
+      return;
+    }
+    getSender().tell(new Messages.ElectionAck(this.replicaId), getSelf());
+    log.info("Replica " + this.replicaId + " received election message from " + getSender().path().name()
+        + " with initiator " + msg.initiatorId);
+
+    if (!this.electionInProgress) {
+      this.electionInProgress = true;
+      this.replicas.removeIf(r -> r.path().name().equals("Replica" + this.coordinatorId));
     }
 
-    private ActorRef getNextReplica() {
-        if (this.peers.isEmpty()) return null;
-        int nextIndex = (this.peers.indexOf(getSelf()) + 1) % this.peers.size();
-        return this.peers.get(nextIndex);
+    if (msg.initiatorId == this.replicaId) {
+      if (this.replicaId == msg.bestCoordinator) {
+        becomeCoordinator(msg.knownPendingUpdates);
+      }
+
+      log.info(Colors.BLUE + "Replica " + this.replicaId + " telling replica " + msg.bestCoordinator
+          + " to be the new coordinator" + Colors.RESET);
+      tellToReplica(new Messages.NewCoordinator(msg.bestCoordinator, msg.knownPendingUpdates), msg.bestCoordinator);
+      return;
     }
 
-    private void selfElection() {
-        if (getSelf() != this.coordinator){
-            log.info(Colors.GREEN + "Replica {} becomes the new coordinator" + Colors.RESET, this.id);
-            this.isCoordinator = true;
-            this.coordinator = getSelf();
-            this.epoch = this.epoch + 1;
-            this.seqNum = 0;
+    Messages.Update myLastUpdate = getLastKnownUpdate();
+    Messages.UpdateId myLastUpdateId = myLastUpdate == null ? new Messages.UpdateId(0, -1) : myLastUpdate.updateId;
 
-            this.heartbeatTimeout = getContext().system().scheduler().scheduleWithFixedDelay(
-                Duration.ZERO,
-                Duration.ofSeconds(heartbeatInterval),
-                this::sendHeartbeat,
-                getContext().system().dispatcher()
-            ); 
-
-            // Check if the new coordinator has a pending update (this means that the old coordinator crashed before sending the write oks)
-            // The new coordinator resends the pending update to all replicas waiting for ACKs and then sends WriteOks
-            // if (this.pendingUpdate != null) {
-            //     this.pendingUpdate = new UpdateMsg(this.epoch, this.seqNum, this.pendingUpdate.newV); // the Update is recreated with the new epoch and seqNum
-            //     multicast(this.pendingUpdate, this.peers, false);
-            //     log.info("New Coordinator {} broadcasted update message with value {}", this.id, this.pendingUpdate.newV);
-            // }
-    
-            // Broadcast SynchronizationMsg to all replicas with the list of updates
-            // for (ActorRef peer : this.peers) {
-            //     peer.tell(new SynchronizationMsg(this.epoch, this.seqNum, getSelf(), new ArrayList<>(this.updates)), getSelf());
-            // }
-
-            // CoordinatorMsg m = new CoordinatorMsg(this.id, getSelf(), this.epoch);
-            // multicast(m, this.peers, false);
-
-            // SynchronizationMsg m = new SynchronizationMsg(this.epoch, this.seqNum, getSelf(), new ArrayList<>(this.updates));
-            // multicast(m, this.peers, false);
-        }
+    Set<Messages.Update> knownPendingUpdates = new HashSet<>(msg.knownPendingUpdates);
+    knownPendingUpdates.addAll(pendingUpdates.values());
+    if (myLastUpdateId.compareTo(msg.bestUpdateId) > 0 ||
+        (myLastUpdateId.compareTo(msg.bestUpdateId) == 0 && replicaId > msg.bestCoordinator)) {
+      Messages.Election newMsg = new Messages.Election(msg.initiatorId, this.replicaId, myLastUpdateId,
+          knownPendingUpdates);
+      setElectionAckTimeout(newMsg);
+      forwardToNextReplica(newMsg);
+    } else {
+      Messages.Election newMsg = new Messages.Election(msg.initiatorId, msg.bestCoordinator, msg.bestUpdateId,
+          knownPendingUpdates);
+      setElectionAckTimeout(newMsg);
+      forwardToNextReplica(newMsg);
     }
+  }
 
-    private void tellUpdates() {
-        if (!this.isCoordinator) return;
-        if (this.pendingUpdate != null) {
-            this.pendingUpdate = new UpdateMsg(this.epoch, this.seqNum, this.pendingUpdate.newV); // the Update is recreated with the new epoch and seqNum
-            multicast(this.pendingUpdate, this.peers, false);
-            log.info("New Coordinator {} broadcasted update message with value {}", this.id, this.pendingUpdate.newV);
-        }
+  private void onSynchronization(Messages.Synchronization msg) {
+    log.info(
+        "Replica " + this.replicaId + " received synchronization message from new coordinator " + msg.newCoordinatorId);
+    this.coordinatorId = msg.newCoordinatorId;
+    this.isCoordinator = (replicaId == coordinatorId);
+    this.currentEpoch++;
+    this.currentSequenceNumber = 0;
+    this.electionInProgress = false;
+    this.pendingUpdates.clear();
+    resetElectionTimeout();
 
-        SynchronizationMsg m = new SynchronizationMsg(this.epoch, this.seqNum, getSelf(), new ArrayList<>(this.updates));
-            multicast(m, this.peers, false);
+    // Apply missed updates
+    applyUpdates(msg.missedUpdates);
+    if (shouldCrash(Messages.CrashPoint.AFTER_SYNCHRONIZATION))
+      return;
+    if (!this.isCoordinator) {
+      resetHeartBeatTimeout();
     }
+  }
 
-    /* -------------------------------------------------------------- */
-
-    // Here we define the mapping between the received message types
-    // and our actor methods
-    @Override
-    public Receive createReceive() {
-        return receiveBuilder()
-                .match(JoinGroupMsg.class, this::onJoinGroupMsg)
-                .match(ReadRequestMsg.class, this::onReadRequestMsg)
-                .match(WriteRequestMsg.class, this::onWriteRequestMsg)
-                .match(UpdateMsg.class, this::onUpdateMsg)
-                .match(AckMsg.class, this::onAckMsg)
-                .match(WriteOkMsg.class, this::onWriteOkMsg)
-                .match(HeartbeatMsg.class, this::onHeartbeatMsg)
-                .match(HeartbeatAckMsg.class, this::onHeartbeatAckMsg)
-                .match(TimeoutMsg.class, this::onTimeoutMsg)
-                .match(WriteTimeoutMsg.class, this::onWriteTimeoutMsg)
-                .match(ReplicaTimeoutMsg.class, this::onReplicaTimeoutMsg)
-                .match(LeaderElectionMsg.class, this::onLeaderElectionMsg)
-                .match(SynchronizationMsg.class, this::onSynchronizationMsg)
-                //.match(CoordinatorMsg.class, this::onCoordinatorMsg)
-                .match(GetInfoMsg.class, this::onGetInfoMsg) // DEV
-                .match(CoordinatorCrashMsg.class, this::onCoordinatorCrashMsg) // DEV
-                .match(ReplicaCrashMsg.class, this::onReplicaCrashMsg) // DEV
-                // .match(DebugMsg.class, this::onDebugMsg) // DEV
-                .build();
+  private void onCrash(Messages.Crash msg) {
+    if (this.replicas.size() <= this.quorumSize) {
+      log.info(
+          Colors.RED + "Replica " + this.replicaId + " ignoring crash command to preserve quorum size" + Colors.RESET);
+      return;
+    } else {
+      log.info(Colors.RED + "Replica " + this.replicaId + " crashing now!" + Colors.RESET);
+      crash();
     }
+  }
 
-    final AbstractActor.Receive crashed(){
-        return receiveBuilder()
-                .match(GetInfoMsg.class, this::onGetInfoMsg)
-                .matchAny(msg -> {})
-                .build();
-    }
+  private void onSetCrashPoint(Messages.SetCrashPoint msg) {
+    this.crashPoint = msg.crashPoint;
+    this.crashAfterOperations = msg.afterOperations;
+    log.info(
+        "Replica " + this.replicaId + " set to crash at " + this.crashPoint + " after " + this.crashAfterOperations
+            + " operations");
+  }
 
-    @Override
-    public void postStop() {
-        if (writeTimeout != null && !writeTimeout.isCancelled()) {
-            writeTimeout.cancel();
-        }
-        if (heartbeatTimeout != null && !heartbeatTimeout.isCancelled()) {
-            heartbeatTimeout.cancel();
-        }
-        if (crashTimeout != null && !crashTimeout.isCancelled()) {
-            crashTimeout.cancel();
-        }
-        MDC.remove("actorName");
+  private void onGetState(Messages.GetState msg) {
+    String status = String.format(
+        "Replica %d | Coordinator: %d | Epoch: %d | SeqNum: %d | Value: %d | LastUpdateId: %s | ElectionInProgress: %b | Crashed: %b, GroupSize: %d",
+        this.replicaId, this.coordinatorId, this.currentEpoch, this.currentSequenceNumber, this.currentValue,
+        this.updateHistory.isEmpty() ? new Messages.UpdateId(0, -1).toString()
+            : getLastKnownUpdate().updateId.toString(),
+        this.electionInProgress, this.crashed, this.replicas.size());
+    status += "\nUpdate History: ";
+    for (Messages.Update update : this.updateHistory) {
+      status += "id:  " + update.updateId + ", Value: " + Colors.RESET + update.value + Colors.BLUE + " -- ";
     }
+    System.out.println(Colors.BLUE + status + Colors.RESET);
+  }
 }

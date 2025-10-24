@@ -31,8 +31,9 @@ compileJava {
     options.compilerArgs += ["-Xlint:deprecation"]
 }
 
-mainClassName = "it.unitn.ds1.ReplicaSystem"
+mainClassName = "it.unitn.ds1.QuorumSystem"
 
 run {
     standardInput = System.in
+    jvmArgs = ["-Duser.timezone=Europe/Rome"]
 }
