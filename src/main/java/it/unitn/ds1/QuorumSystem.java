@@ -442,7 +442,7 @@ public class QuorumSystem {
 
     initializeSystem();
 
-    System.out.println("Try 'help' for availble commands");
+    System.out.println("Try 'help' for available commands");
 
     while (true) {
       System.out.print("\n> ");
