@@ -329,6 +329,7 @@ public class Replica extends AbstractActor {
     this.coordinatorId = replicaId;
     this.currentEpoch++;
     this.currentSequenceNumber = 0;
+    resetElectionTimeout();
 
     try {
       Thread.sleep(500);
@@ -637,7 +638,7 @@ public class Replica extends AbstractActor {
     // Start election
     if (!this.electionInProgress) {
       getContext().getSystem().scheduler().scheduleOnce(
-          Duration.create(this.replicaId * 80, TimeUnit.MILLISECONDS),
+          Duration.create(Math.min(this.replicaId * 80, 2000), TimeUnit.MILLISECONDS),
           getSelf(),
           new Messages.StartElection(),
           getContext().getDispatcher(),
@@ -724,12 +725,12 @@ public class Replica extends AbstractActor {
     if (msg.initiatorId == this.replicaId) {
       if (this.replicaId == msg.bestCoordinator) {
         becomeCoordinator(msg.knownPendingUpdates);
+      } else {
+        log.info(Colors.BLUE + "Replica " + this.replicaId + " telling replica " + msg.bestCoordinator
+            + " to be the new coordinator" + Colors.RESET);
+        tellToReplica(new Messages.NewCoordinator(msg.bestCoordinator, msg.knownPendingUpdates), msg.bestCoordinator);
+        return;
       }
-
-      log.info(Colors.BLUE + "Replica " + this.replicaId + " telling replica " + msg.bestCoordinator
-          + " to be the new coordinator" + Colors.RESET);
-      tellToReplica(new Messages.NewCoordinator(msg.bestCoordinator, msg.knownPendingUpdates), msg.bestCoordinator);
-      return;
     }
 
     Messages.Update myLastUpdate = getLastKnownUpdate();
