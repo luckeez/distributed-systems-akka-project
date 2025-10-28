@@ -47,6 +47,7 @@ public class Client extends AbstractActorWithStash {
         .build();
   }
 
+// ---------------  UTILS  ----------------
   private void introduceNetworkDelay() {
     try {
       Thread.sleep(ThreadLocalRandom.current().nextInt(10, 50));
@@ -75,6 +76,7 @@ public class Client extends AbstractActorWithStash {
     }
   }
 
+// --------------- REQUESTS ----------------
   private void onReadRequest(Messages.ReadRequest msg) {
     ActorRef replica = this.replicas.get(ThreadLocalRandom.current().nextInt(this.replicas.size()));
     log.info(Colors.YELLOW + "Client " + this.clientId + " read req to " + replica.path().name() + Colors.RESET);
@@ -91,14 +93,15 @@ public class Client extends AbstractActorWithStash {
       stash();
       return;
     }
+
     introduceNetworkDelay();
     Messages.WriteRequest req = new Messages.WriteRequest(msg.value,
         new Messages.RequestInfo(getSelf(), this.requestCounter++));
     scheduleRequestTimeout(req);
     replica.tell(req, getSelf());
-
   }
 
+// --------------- RESPONSES ----------------
   private void onReadResponse(Messages.ReadResponse msg) {
     log.info(Colors.GREEN + "Client " + this.clientId + " read done " + msg.value + Colors.RESET);
   }
@@ -108,6 +111,7 @@ public class Client extends AbstractActorWithStash {
         + (msg.success ? Colors.GREEN + "SUCCESS" + Colors.RESET : Colors.RED + "FAILED" + Colors.RESET));
     cancelRequestTimeout(msg.requestInfo);
 
+    // unstash any stashed requests
     unstashAll();
   }
 }
