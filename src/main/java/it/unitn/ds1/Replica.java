@@ -147,7 +147,7 @@ public class Replica extends AbstractActor {
   // ------------------- COMMUNICATION  -------------------
   private void introduceNetworkDelay() {
     try {
-      Thread.sleep(ThreadLocalRandom.current().nextInt(10, 50));
+      Thread.sleep(ThreadLocalRandom.current().nextInt(10));
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
     }
@@ -294,7 +294,7 @@ public class Replica extends AbstractActor {
     }
     // schedule election ack timeout to check if election process is stuck
     this.electionAckTimeout = getContext().getSystem().scheduler().scheduleOnce(
-        Duration.create(500, TimeUnit.MILLISECONDS),
+        Duration.create(1000, TimeUnit.MILLISECONDS),
         getSelf(),
         new Messages.ElectionAckTimeout(msg),
         getContext().getDispatcher(),
@@ -600,7 +600,6 @@ public class Replica extends AbstractActor {
         return;
     } else {
       // forward write request to coordinator
-      introduceNetworkDelay();
       log.info("Replica " + this.replicaId + " forwarding write request to coordinator " + this.coordinatorId);
       forwardToCoordinator(new Messages.WriteRequest(msg.value, msg.requestInfo));
     }
@@ -735,12 +734,13 @@ public class Replica extends AbstractActor {
     // Upper bound of 2 seconds
     if (!this.electionInProgress) {
       getContext().getSystem().scheduler().scheduleOnce(
-          Duration.create(Math.min(this.replicaId * 80, 2000), TimeUnit.MILLISECONDS),
+          Duration.create(Math.min(this.replicaId * 100, 2000), TimeUnit.MILLISECONDS),
           getSelf(),
           new Messages.StartElection(),
           getContext().getDispatcher(),
           getSelf());
     }
+    
     // Timeout to check if the election was successful
     this.electionTimeout = getContext().getSystem().scheduler().scheduleOnce(
         Duration.create(10, TimeUnit.SECONDS),

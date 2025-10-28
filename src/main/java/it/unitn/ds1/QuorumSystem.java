@@ -241,7 +241,7 @@ public class QuorumSystem {
     System.out.println("=== Election Scenario: Coord. and Replica Crash ===");
 
     // Set multiple replicas to crash at different points
-    replicas.get(7).tell(new Messages.SetCrashPoint(Messages.CrashPoint.DURING_ELECTION, 0), ActorRef.noSender());
+    replicas.get(4).tell(new Messages.SetCrashPoint(Messages.CrashPoint.DURING_ELECTION, 0), ActorRef.noSender());
     Thread.sleep(500);
 
     replicas.get(0).tell(new Messages.Crash(), ActorRef.noSender());
