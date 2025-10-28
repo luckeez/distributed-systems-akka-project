@@ -162,12 +162,14 @@ public class Replica extends AbstractActor {
   }
 
   private boolean broadcast(Serializable msg, Messages.CrashPoint crashPoint) {
+    // in broadcast network delay is introduced once before sending to all replicas,
+    // to avoid cumulative delays
+    introduceNetworkDelay();
     for (ActorRef replica : this.replicas) {
       if (replica == getSelf())
         continue;
       if (shouldCrash(crashPoint))
         return true;
-      introduceNetworkDelay();
       replica.tell(msg, getSelf());
     }
     return false;
@@ -252,12 +254,7 @@ public class Replica extends AbstractActor {
         Duration.create(1, TimeUnit.SECONDS),
         () -> {
           if (!this.crashed && this.isCoordinator) {
-            for (ActorRef replica : this.replicas) {
-              if (!replica.equals(getSelf())) {
-                introduceNetworkDelay();
-                replica.tell(new Messages.HeartBeat(this.replicaId), getSelf());
-              }
-            }
+            broadcast(new Messages.HeartBeat(this.replicaId), null);
           }
         },
         getContext().getDispatcher());
