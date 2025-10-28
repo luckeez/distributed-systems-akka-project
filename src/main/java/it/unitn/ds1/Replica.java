@@ -102,7 +102,6 @@ public class Replica extends AbstractActor {
         .match(Messages.HeartBeatAck.class, this::onHeartBeatAck)
         .match(Messages.Crash.class, this::onCrash)
         .match(Messages.GetState.class, this::onGetState)
-        .match(Messages.Timeout.class, this::onTimeout)
         .match(Messages.ReplicaTimeout.class, this::onReplicaTimeout)
         .match(Messages.SetCrashPoint.class, this::onSetCrashPoint)
         .match(Messages.Crash.class, this::onCrash)
@@ -130,7 +129,6 @@ public class Replica extends AbstractActor {
         .match(Messages.HeartBeatTimeout.class, this::onHeartBeatTimeout)
         .match(Messages.DetectedReplicaFailure.class, this::onDetectedReplicaFailure)
         .match(Messages.Election.class, this::onElection)
-        .match(Messages.Timeout.class, this::onTimeout)
         .match(Messages.Synchronization.class, this::onSynchronization)
         .match(Messages.Crash.class, this::onCrash)
         .match(Messages.SetCrashPoint.class, this::onSetCrashPoint)
@@ -606,13 +604,6 @@ public class Replica extends AbstractActor {
     if (this.updateTimeout != null) {
       this.updateTimeout.cancel();
     }
-    // this.updateTimeout = getContext().getSystem().scheduler().scheduleOnce(
-    // Duration.create(2, TimeUnit.SECONDS),
-    // getSelf(),
-    // new Messages.Timeout(),
-    // getContext().getDispatcher(),
-    // getSelf());
-
   }
 
   // ------------------- UPDATES  -------------------
@@ -734,7 +725,7 @@ public class Replica extends AbstractActor {
     // Upper bound of 2 seconds
     if (!this.electionInProgress) {
       getContext().getSystem().scheduler().scheduleOnce(
-          Duration.create(Math.min(this.replicaId * 100, 2000), TimeUnit.MILLISECONDS),
+          Duration.create(Math.min(this.replicaId * 70, 2000), TimeUnit.MILLISECONDS),
           getSelf(),
           new Messages.StartElection(),
           getContext().getDispatcher(),
@@ -763,16 +754,6 @@ public class Replica extends AbstractActor {
 
     // notify the detected failure to other replicas
     broadcast(new Messages.DetectedReplicaFailure(msg.replicaId), null);
-  }
-
-  private void onTimeout(Messages.Timeout msg) {
-    if (this.isCoordinator) {
-      log.info("Coordinator " + this.replicaId + " timeout waiting for acks");
-      // TODO: think about what to do if the coordinator times out waiting for ACKs
-    } else {
-      log.info("Replica " + this.replicaId + " timeout waiting for update message, starting eletion process...");
-      startElection();
-    }
   }
 
   private void onDetectedReplicaFailure(Messages.DetectedReplicaFailure msg) {
