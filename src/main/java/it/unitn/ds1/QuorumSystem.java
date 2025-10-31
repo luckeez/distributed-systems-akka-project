@@ -12,9 +12,12 @@ public class QuorumSystem {
   private static List<ActorRef> clients = new ArrayList<>();
   private static List<ActorRef> replicas = new ArrayList<>();
   private static Scanner scanner;
+
+  // Number of replicas and clients:
   private static final int N = 10;
   private static final int N_CLIENTS = 3;
 
+  // Initialize the system: create replicas and clients
   private static void initializeSystem() {
     replicas = new ArrayList<>();
     int quorumSize = (N / 2) + 1;
@@ -36,6 +39,7 @@ public class QuorumSystem {
     System.out.println(Colors.BLUE + "System has been initialized!" + Colors.RESET);
   }
 
+  // Print help message
   private static void printHelp() {
     System.out.println("\n=== Available Commands ===");
     System.out.println("help                          - Show this help message");
@@ -56,18 +60,19 @@ public class QuorumSystem {
     System.out.println("AFTER_SYNCHRONIZATION");
     System.out.println("\n=== Predefined Scenarios ===");
     System.out.println("scenario basic          - Basic write/read operations");
-    System.out.println("scenario election       - Coordinator and replica crash during election");
-    System.out.println("scenario election2      - Multiple replica crashes during election");
-    System.out.println("scenario electioninit   - Election initiator crashes during election");
     System.out.println("scenario update         - Crash during sending updates");
     System.out.println("scenario beforeupdate   - Crash before sending updates");
     System.out.println("scenario afterupdate    - Crash after sending updates");
     System.out.println("scenario writeok        - Crash during sending WriteOK");
     System.out.println("scenario afterwriteok   - Crash after sending WriteOK");
     System.out.println("scenario recvupdate     - Replica crash after receiving update");
+    System.out.println("scenario election       - Coordinator and replica crash during election");
+    System.out.println("scenario election2      - Multiple replica crashes during election");
+    System.out.println("scenario electioninit   - Election initiator crashes during election");
     System.out.println("scenario stress         - Stress test with multiple operations");
   }
 
+  // Print system status
   private static void printStatus() {
     System.out.println(Colors.BLUE + "\n=== Status ===" + Colors.RESET);
     for (ActorRef replica : replicas) {
@@ -75,6 +80,7 @@ public class QuorumSystem {
     }
   }
 
+  // Handle read command
   private static void handleReadCommand(String[] parts) {
     if (parts.length != 2) {
       System.out.println("Usage: read <clientId>");
@@ -92,6 +98,7 @@ public class QuorumSystem {
     clients.get(clientId).tell(new Messages.ReadRequest(), ActorRef.noSender());
   }
 
+  // Handle write command
   private static void handleWriteCommand(String[] parts) {
     if (parts.length != 3) {
       System.out.println("Usage: write <clientId> <value>");
@@ -110,6 +117,7 @@ public class QuorumSystem {
 
   }
 
+  // Handle crash command
   private static void handleCrashCommand(String[] parts) {
     if (parts.length != 2) {
       System.out.println("Usage: crash <replicaId>");
@@ -127,6 +135,7 @@ public class QuorumSystem {
     replicas.get(replicaId).tell(new Messages.Crash(), ActorRef.noSender());
   }
 
+  // Handle setcrash command
   private static void handleSetCrashCommand(String[] parts) {
     if (parts.length != 4) {
       System.out.println("Usage: setcrash <replicaId> <crashPoint> <afterOperations>");
@@ -154,6 +163,7 @@ public class QuorumSystem {
 
   }
 
+  // Handle scenario command
   private static void handleScenarioCommand(String[] parts) {
     if (parts.length != 2) {
       System.out.println("Usage: scenario <scenarioName>");
@@ -211,11 +221,8 @@ public class QuorumSystem {
 
 // ===================== SCENARIOS ============================
 
-// --------------------- BASIC scenarios ----------------------
+// Write and read operations without failures
   private static void runBasicScenario() throws InterruptedException {
-    /*
-     Write and read operations without failures
-    */
     System.out.println("=== Basic Scenario: Normal Operations ===");
 
     clients.get(0).tell(new Messages.WriteRequest(10), ActorRef.noSender());
@@ -233,11 +240,8 @@ public class QuorumSystem {
     System.out.println("Basic scenario completed");
   }
 
-// --------------------- ELECTION scenarios -------------------
+// Coordinator crash and a replica crash during election
   private static void runElectionScenario() throws InterruptedException {
-    /*
-      Coordinator crash and a replica crash during election
-    */
     System.out.println("=== Election Scenario: Coord. and Replica Crash ===");
 
     // Set multiple replicas to crash at different points
@@ -250,10 +254,8 @@ public class QuorumSystem {
     System.out.println("Election scenario completed");
   }
 
+// Coordinator crash and multiple replica crashes during election
   private static void runElectionMultipleCrashes() throws InterruptedException {
-    /*
-     Coordinator crash and multiple replica crashes during election
-    */
     System.out.println("=== Election Scenario: Multiple Crashes ===");
 
     // Set multiple replicas to crash during election
@@ -268,10 +270,8 @@ public class QuorumSystem {
     System.out.println("Election scenario completed");
   }
 
+// Coordinator crash and election initiator crash during election
   private static void runElectionInitiatorCrash() throws InterruptedException {
-    /*
-     Coordinator crash and election initiator crash during election
-    */
     System.out.println("=== Election Scenario: Initiator Crash ===");
 
     // Set the initiator to crash during election
@@ -285,11 +285,8 @@ public class QuorumSystem {
     System.out.println("Election scenario completed");
   }
 
-// --------------------- UPDATE scenarios ---------------------
+// Coordinator crashes before sending updates
   private static void runCrashBeforeSendingUpdate() throws InterruptedException {
-    /*
-     Coordinator crashes before sending updates
-    */
     System.out.println("=== Crash Before Sending Update Scenario ===");
 
     // Set coordinator to crash before sending updates
@@ -300,14 +297,11 @@ public class QuorumSystem {
     clients.get(0).tell(new Messages.WriteRequest(150), ActorRef.noSender());
     Thread.sleep(7000);
 
-    printStatus();
     System.out.println("Crash before sending update scenario completed");
   }
 
+// Coordinator crashes while sending updates, after the third update sent
   private static void runCrashDuringSendingUpdates() throws InterruptedException {
-    /*
-     Coordinator crashes while sending updates, after the third update sent
-    */
     System.out.println("=== Crash During Sending Updates Scenario ===");
 
     // Set coordinator to crash during sending updates
@@ -318,14 +312,11 @@ public class QuorumSystem {
     clients.get(0).tell(new Messages.WriteRequest(800), ActorRef.noSender());
     Thread.sleep(7000);
 
-    printStatus();
     System.out.println("Crash during sending updates scenario completed");
   }
 
+// Coordinator crashes after sending updates
   private static void runCrashAfterSendingUpdates() throws InterruptedException {
-    /*
-     Coordinator crashes after sending updates
-    */
     System.out.println("=== Crash After Sending Updates Scenario ===");
 
     // Set coordinator to crash during sending updates
@@ -336,15 +327,11 @@ public class QuorumSystem {
     clients.get(0).tell(new Messages.WriteRequest(900), ActorRef.noSender());
     Thread.sleep(7000);
 
-    printStatus();
     System.out.println("Crash after sending updates scenario completed");
   }
 
-// --------------------- WRITEOK scenarios --------------------
+// Coordinator crashes while sending WriteOK, after the third WriteOK sent
   private static void runCrashDuringSendingWriteOK() throws InterruptedException {
-    /*
-     Coordinator crashes while sending WriteOK, after the third WriteOK sent
-    */
     System.out.println("=== Crash Before Sending WriteOK Scenario ===");
 
     // Set coordinator to crash before sending WriteOK
@@ -355,14 +342,11 @@ public class QuorumSystem {
     clients.get(0).tell(new Messages.WriteRequest(250), ActorRef.noSender());
     Thread.sleep(7000);
 
-    printStatus();
     System.out.println("Crash during sending WriteOK scenario completed");
   }
 
+// Coordinator crashes after sending WriteOKs
   private static void runCrashAfterSendingWriteOK() throws InterruptedException {
-    /*
-     Coordinator crashes after sending WriteOKs
-    */
     System.out.println("=== Crash After Sending WriteOK Scenario ===");
 
     // Set coordinator to crash after sending WriteOK
@@ -373,16 +357,11 @@ public class QuorumSystem {
     clients.get(0).tell(new Messages.WriteRequest(350), ActorRef.noSender());
     Thread.sleep(7000);
 
-    printStatus();
     System.out.println("Crash after sending WriteOK scenario completed");
   }
 
-
-// --------------------- RECEIVE UPDATE scenario --------------
+// Replica crashes after receiving update
   private static void runCrashAfterReceivingUpdate() throws InterruptedException {
-    /*
-     Replica crashes after receiving update
-    */
     System.out.println("=== Crash After Receiving Update Scenario ===");
 
     // Set replica to crash after receiving update
@@ -393,17 +372,12 @@ public class QuorumSystem {
     clients.get(0).tell(new Messages.WriteRequest(450), ActorRef.noSender());
     Thread.sleep(7000);
 
-    printStatus();
     System.out.println("Crash after receiving update scenario completed");
   }
 
-
-// --------------------- STRESS scenario ----------------------
+// Multiple concurrent write and read operations from different clients,
+// with coordinator crash during the operations
   private static void runStressScenario() throws InterruptedException {
-    /*
-     Multiple concurrent write and read operations from different clients,
-     with coordinator crash during the operations
-    */
     System.out.println("=== Stress Scenario: Multiple Concurrent Operations ===");
 
     // Rapid fire writes from multiple clients
@@ -429,6 +403,7 @@ public class QuorumSystem {
   }
 
 // ===================== SYSTEM RESET =========================
+// Reset the entire system: terminate current system and create a new one
   private static void resetSystem() {
     System.out.println("Resetting system...");
 

@@ -143,6 +143,7 @@ public class Replica extends AbstractActor {
   // ===================  HELPERS  ===================
 
   // ------------------- COMMUNICATION  -------------------
+  // Simulate network delay
   private void introduceNetworkDelay() {
     try {
       Thread.sleep(ThreadLocalRandom.current().nextInt(10));
@@ -151,6 +152,7 @@ public class Replica extends AbstractActor {
     }
   }
 
+  // Forward a message to the current coordinator
   private void forwardToCoordinator(Serializable msg) {
     for (ActorRef replica : this.replicas) {
       if (replica.path().name().equals("Replica" + this.coordinatorId)) {
@@ -161,6 +163,7 @@ public class Replica extends AbstractActor {
     }
   }
 
+  // Broadcast a message to all replicas
   private boolean broadcast(Serializable msg, Messages.CrashPoint crashPoint) {
     // in broadcast network delay is introduced once before sending to all replicas,
     // to avoid cumulative delays
@@ -175,8 +178,8 @@ public class Replica extends AbstractActor {
     return false;
   }
 
+  // Get the next replica in the ring
   private ActorRef getNextReplica() {
-    // find the next replica in the ring
     int nextReplica = 0;
     for (int i = 0; i < this.replicas.size(); i++) {
       if (this.replicas.get(i).equals(getSelf())) {
@@ -187,13 +190,14 @@ public class Replica extends AbstractActor {
     return this.replicas.get(nextReplica);
   }
 
+  // Forward a message to the next replica in the ring
   private void forwardToNextReplica(Serializable msg) {
     introduceNetworkDelay();
     getNextReplica().tell(msg, getSelf());
   }
 
+  // Send a message to a specific replica by id
   private void tellToReplica(Serializable msg, int replicaId) {
-    // send a message to replica with given id
     for (ActorRef replica : this.replicas) {
       if (replica.path().name().equals("Replica" + replicaId)) {
         introduceNetworkDelay();
@@ -204,8 +208,8 @@ public class Replica extends AbstractActor {
   }
 
   // ------------------- TIMEOUTS  -------------------
+  // Schedule timeouts for each replica to detect crashes
   private void scheduleReplicaTimeouts() {
-    // coordinator schedules timeouts for each replica to detect crashes
     this.replicaTimeouts = new HashMap<>();
     for (ActorRef replica : this.replicas) {
       String name = replica.path().name();
@@ -219,6 +223,7 @@ public class Replica extends AbstractActor {
     }
   }
 
+  // Reset timeout for a specific replica
   private void resetReplicaTimeout(String name) {
     if (this.replicaTimeouts.get(name) != null) {
       this.replicaTimeouts.get(name).cancel();
@@ -236,13 +241,14 @@ public class Replica extends AbstractActor {
     }
   }
 
+  // Reset election timeout
   private void resetElectionTimeout() {
-    // reset election timeout
     if (this.electionTimeout != null) {
       this.electionTimeout.cancel();
     }
   }
 
+  // Schedule periodic heartbeats
   private void scheduleHeartBeat() {
     if (this.heartBeatSchedule != null) {
       this.heartBeatSchedule.cancel();
@@ -260,13 +266,14 @@ public class Replica extends AbstractActor {
         getContext().getDispatcher());
   }
 
+  // Schedule heartbeat timeout for replicas to detect coordinator crash
   private void scheduleHeartBeatTimeout() {
-    // schedule heartbeat timeout for replicas to detect coordinator crash
     if (!this.isCoordinator) {
       resetHeartBeatTimeout();
     }
   }
 
+  // Reset heartbeat timeout
   private void resetHeartBeatTimeout() {
     if (this.heartBeatTimeout != null) {
       this.heartBeatTimeout.cancel();
@@ -283,6 +290,7 @@ public class Replica extends AbstractActor {
     }
   }
 
+  // Set election ack timeout, used to detect failure of next replica during election
   private void setElectionAckTimeout(Messages.Election msg) {
     if (this.electionAckTimeout != null) {
       this.electionAckTimeout.cancel();
@@ -296,6 +304,7 @@ public class Replica extends AbstractActor {
         getSelf());
   }
 
+  // Cancel all scheduled timeouts
   private void cancelTimeouts() {
     if (this.heartBeatSchedule != null) {
       this.heartBeatSchedule.cancel();
@@ -320,8 +329,8 @@ public class Replica extends AbstractActor {
   }
 
   // -------------------- UPDATE  -------------------
+  // Check if a client request was already served
   private boolean alreadyServed(Messages.RequestInfo requestInfo) {
-    // check if the client request was already served by checking if requestInfo is already in the update history
     for (Messages.Update update : this.updateHistory) {
       if (update.requestInfo != null && update.requestInfo.equals(requestInfo)) {
         return true;
@@ -330,8 +339,8 @@ public class Replica extends AbstractActor {
     return false;
   }
 
+  // Apply all updates that are not already in the update history
   private void applyUpdates(List<Messages.Update> knownUpdates) {
-    // apply all updates that are not already in the update history
     for (Messages.Update update : knownUpdates) {
       if (!this.updateHistory.contains(update)) {
         this.updateHistory.add(update);
@@ -344,8 +353,8 @@ public class Replica extends AbstractActor {
     this.currentValue = this.updateHistory.isEmpty() ? 0 : getLastKnownUpdate().value;
   }
 
+  // Apply a single update if not already applied
   private void applyUpdate(Messages.Update update) {
-    // apply a single update if not already applied
     if (this.updateHistory.contains(update))
       return;
     this.updateHistory.add(update);
@@ -360,8 +369,8 @@ public class Replica extends AbstractActor {
     }
   }
 
+  // Retrieve the last known update
   private Messages.Update getLastKnownUpdate() {
-    // retrieve the last update in the update history
     if (this.updateHistory.isEmpty()) {
       return null;
     } else {
@@ -369,8 +378,8 @@ public class Replica extends AbstractActor {
     }
   }
 
+  // Retrieve the last known update id in the update history
   private Messages.UpdateId getLastKnownUpdateId() {
-    // retrieve the last update id in the update history
     Messages.Update lastUpdate = getLastKnownUpdate();
     if (lastUpdate == null) {
       return new Messages.UpdateId(0, -1);
@@ -380,8 +389,8 @@ public class Replica extends AbstractActor {
   }
 
   // ------------------- ELECTION  -------------------
+  // Start the election process using a ring-based election algorithm
   private void startElection() {
-    // start the election process using a ring-based election algorithm
     // if the election is already in progress, skip
     if (this.electionInProgress || shouldCrash(Messages.CrashPoint.DURING_ELECTION))
       return;
@@ -409,6 +418,7 @@ public class Replica extends AbstractActor {
     }
   }
 
+  // Become the new coordinator after winning the election
   private void becomeCoordinator(Set<Messages.Update> knownPendingUpdates) {
     if (this.isCoordinator)
       return;
@@ -464,6 +474,7 @@ public class Replica extends AbstractActor {
   }
 
   // ------------------- CRASH SIMULATION -------------------
+  // Determine if the replica should crash at a specific crash point
   private boolean shouldCrash(Messages.CrashPoint point) {
     // set to crash at the specified crash point
     if (this.crashed || point == null || this.crashPoint != point || this.replicas.size() <= this.quorumSize) {
@@ -484,15 +495,15 @@ public class Replica extends AbstractActor {
     return false;
   }
 
+  // Simulate crash by setting crashed flag and cancelling timeouts
   private void crash() {
-    // simulate crash by setting crashed flag and cancelling timeouts
     this.crashed = true;
     cancelTimeouts();
     getContext().become(crashed());
   }
 
+  // Check if a replica with given id is alive in the replicas list
   private boolean isAlive(int replicaId) {
-    // check if a replica with given id is alive in the replicas list
     for (ActorRef replica : this.replicas) {
       if (replica.path().name().equals("Replica" + replicaId)) {
         return true;
@@ -502,15 +513,10 @@ public class Replica extends AbstractActor {
   }
 
   // ===================  MESSAGE HANDLERS  ===================
-
   // ------------------- UTILS  -------------------
-  private void onInitialize(Messages.Initialize msg) {
-    /*
-      Initialize the replica with the list of replicas in the system.
-    */
-    if (this.crashed)
-      return;
 
+  // Initialize the replica with the list of replicas in the system.
+  private void onInitialize(Messages.Initialize msg) {
     // initialize the replicas list
     this.replicas = new ArrayList<>(msg.replicas);
     log.info(
@@ -519,10 +525,8 @@ public class Replica extends AbstractActor {
 
   }
 
+  // Print on console the current state of the replica
   private void onGetState(Messages.GetState msg) {
-    /* 
-      print on console the current state of the replica
-    */
     String status = String.format(
         "Replica %d | Coordinator: %d | Epoch: %d | SeqNum: %d | Value: %d | LastUpdateId: %s | ElectionInProgress: %b | Crashed: %b, GroupSize: %d",
         this.replicaId, this.coordinatorId, this.currentEpoch, this.currentSequenceNumber, this.currentValue,
@@ -537,25 +541,16 @@ public class Replica extends AbstractActor {
   }
 
   // ------------------- CLIENT REQUESTS  -------------------
+  // Respond to read request with current value
   private void onReadRequest(Messages.ReadRequest msg) {
-    /*
-      respond to read request with current value
-    */
-    if (this.crashed)
-      return;
     if (!getSender().path().name().equals("Client2"))
       log.info("Replica " + this.replicaId + " received read request from " + getSender().path().name());
     introduceNetworkDelay();
     getSender().tell(new Messages.ReadResponse(this.currentValue), getSelf());
   }
 
+  // Handle write request from client
   private void onWriteRequest(Messages.WriteRequest msg) {
-    /* 
-      handle write request from client
-    */
-    if (this.crashed)
-      return;
-
     if (this.isCoordinator) {
       // check if the request was already served
       if (alreadyServed(msg.requestInfo)) {
@@ -604,10 +599,8 @@ public class Replica extends AbstractActor {
   }
 
   // ------------------- UPDATES  -------------------
+  // When a replica receives an update message, it adds it to the pending updates map and sends an Ack back to the coordinator.
   private void onUpdate(Messages.Update msg) {
-    /* 
-      When a replica receives an update message, it adds it to the pending updates map and sends an Ack back to the coordinator.
-    */
     if (this.updateTimeout != null) {
       this.updateTimeout.cancel();
     }
@@ -633,10 +626,8 @@ public class Replica extends AbstractActor {
       return;
   }
 
+  // Coordinator receives Ack messages from replicas and checks if quorum is reached to send writeoks.
   private void onAck(Messages.Ack msg) {
-    /*
-      Coordinator receives Ack messages from replicas and checks if quorum is reached to send writeoks.
-    */
 
     if (this.pendingAcks.containsKey(msg.updateId)) {
       // increment the number of acks received for the update
@@ -678,10 +669,8 @@ public class Replica extends AbstractActor {
     }
   }
 
+  // Replica receives WriteOk messages from coordinator and applies the update.
   private void onWriteOk(Messages.WriteOk msg) {
-    /*
-      Replica receives WriteOk messages from coordinator and applies the update.
-    */
     Messages.Update update = this.pendingUpdates.get(msg.updateId);
     if (update != null) {
       applyUpdate(update);
@@ -709,10 +698,8 @@ public class Replica extends AbstractActor {
   }
 
   // ------------------- CRASH DETECTION  -------------------
+  // Replica detects coordinator failure due to heartbeat timeout and starts election process.
   private void onHeartBeatTimeout(Messages.HeartBeatTimeout msg) {
-    /*
-      Replica detects coordinator failure due to heartbeat timeout and starts election process.
-    */
     this.electionInProgress = false;
     log.info(
         Colors.RED + "Replica " + this.replicaId + " detected coordinator failure of replica " + this.coordinatorId +
@@ -738,12 +725,10 @@ public class Replica extends AbstractActor {
         getSelf());
   }
 
+  // Coordinator detects replica failure due to replica timeout and notifies other replicas.
   private void onReplicaTimeout(Messages.ReplicaTimeout msg) {
-    /*
-      Coordinator detects replica failure due to replica timeout and notifies other replicas.
-    */
 
-    log.warning(Colors.RED + "Coordinator " + this.replicaId + " detected failure of replica " + msg.replicaId +
+    log.info(Colors.RED + "Coordinator " + this.replicaId + " detected failure of replica " + msg.replicaId +
         Colors.RESET);
 
     // remove the crashed replica from the group
@@ -753,12 +738,10 @@ public class Replica extends AbstractActor {
     broadcast(new Messages.DetectedReplicaFailure(msg.replicaId), null);
   }
 
+  // The replica received the failure notication of another replica from the coordinator and proceed to remove the replica from the group
   private void onDetectedReplicaFailure(Messages.DetectedReplicaFailure msg) {
-    /*
-      the replica received the failure notication of another replica from the
-      coordinator and proceed to remove the replica from the group
-    */
-    log.warning(Colors.RED +
+
+    log.info(Colors.RED +
         "Replica " + this.replicaId + " received ReplicaFailure message, replica" + msg.failedReplicaId
         + " crashed" +
         Colors.RESET);
@@ -767,10 +750,8 @@ public class Replica extends AbstractActor {
   }
 
   // ------------------- ELECTION  -------------------
+  // Replica receives election message and participates in the ring-based election algorithm.
   private void onElection(Messages.Election msg) {
-    /*
-      Replica receives election message and participates in the ring-based election algorithm.
-    */
     if (shouldCrash(Messages.CrashPoint.DURING_ELECTION))
       return;
 
@@ -795,6 +776,7 @@ public class Replica extends AbstractActor {
       // check who is the best coordinator
       if (this.replicaId == msg.bestCoordinator) {
         becomeCoordinator(msg.knownPendingUpdates);
+        return;
       } else {
         log.info(Colors.BLUE + "Replica " + this.replicaId + " telling replica " + msg.bestCoordinator
             + " to be the new coordinator" + Colors.RESET);
@@ -829,21 +811,15 @@ public class Replica extends AbstractActor {
     }
   }
 
+  // Replica receives election ack from another replica and cancels the election ack timeout.
   private void onElectionAck(Messages.ElectionAck msg) {
-    /*
-      Replica receives election ack from another replica and cancels the election ack timeout.
-    */
     if (this.electionAckTimeout != null) {
       this.electionAckTimeout.cancel();
     }
   }
 
+  // Replica detects timeout waiting for election ack from next replica and assumes it crashed. It removes the crashed replica from the group and continues the election process by forwarding the election message to the next replica.
   private void onElectionAckTimeout(Messages.ElectionAckTimeout msg) {
-    /*
-      Replica detects timeout waiting for election ack from next replica and assumes it crashed.
-      It removes the crashed replica from the group and continues the election process by forwarding 
-      the election message to the next replica.
-    */
     // remove the crashed replica from the group
     ActorRef nextReplica = getNextReplica();
     int nextReplicaInt = Integer.parseInt(nextReplica.path().name().replace("Replica", ""));
@@ -860,16 +836,15 @@ public class Replica extends AbstractActor {
           + Colors.RESET);
       this.electionInProgress = false;
       startElection();
+      
       return;
     }
     setElectionAckTimeout(msg.msg);
     forwardToNextReplica(msg.msg);
   }
 
+  // Replica receives synchronization message from new coordinator and updates its state.
   private void onSynchronization(Messages.Synchronization msg) {
-    /*
-      Replica receives synchronization message from new coordinator and updates its state.
-    */
     log.info(
         "Replica " + this.replicaId + " received synchronization message from new coordinator " + msg.newCoordinatorId);
     this.coordinatorId = msg.newCoordinatorId;
@@ -890,11 +865,8 @@ public class Replica extends AbstractActor {
   }
 
   // ------------------- CRASH SIMULATION -------------------
+  // Handle crash command to simulate replica crash. Ensure that crashing the replica does not violate quorum size.
   private void onCrash(Messages.Crash msg) {
-    /*
-      Handle crash command to simulate replica crash.
-      Ensure that crashing the replica does not violate quorum size.
-    */
     if (this.replicas.size() <= this.quorumSize) {
       log.info(
           Colors.RED + "Replica " + this.replicaId + " ignoring crash command to preserve quorum size" + Colors.RESET);
@@ -905,10 +877,8 @@ public class Replica extends AbstractActor {
     }
   }
 
+  // Set the crash point and number of operations after which the replica should crash.
   private void onSetCrashPoint(Messages.SetCrashPoint msg) {
-    /*
-      Set the crash point and number of operations after which the replica should crash.
-    */
     this.crashPoint = msg.crashPoint;
     this.crashAfterOperations = msg.afterOperations;
     log.info(

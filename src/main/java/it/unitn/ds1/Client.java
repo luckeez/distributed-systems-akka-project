@@ -48,6 +48,7 @@ public class Client extends AbstractActorWithStash {
   }
 
 // ---------------  UTILS  ----------------
+  // Simulate network delay
   private void introduceNetworkDelay() {
     try {
       Thread.sleep(ThreadLocalRandom.current().nextInt(10, 50));
@@ -56,6 +57,7 @@ public class Client extends AbstractActorWithStash {
     }
   }
 
+  // Schedule a timeout for a write request
   private void scheduleRequestTimeout(Messages.WriteRequest msg) {
 
     ActorRef replica = this.replicas.get(ThreadLocalRandom.current().nextInt(this.replicas.size()));
@@ -69,6 +71,7 @@ public class Client extends AbstractActorWithStash {
 
   }
 
+  // Cancel a scheduled timeout for a write request
   private void cancelRequestTimeout(Messages.RequestInfo requestInfo) {
     Cancellable timeout = this.pendingRequestsTimeouts.remove(requestInfo);
     if (timeout != null) {
@@ -77,6 +80,7 @@ public class Client extends AbstractActorWithStash {
   }
 
 // --------------- REQUESTS ----------------
+  // Read Request
   private void onReadRequest(Messages.ReadRequest msg) {
     ActorRef replica = this.replicas.get(ThreadLocalRandom.current().nextInt(this.replicas.size()));
     log.info(Colors.YELLOW + "Client " + this.clientId + " read req to " + replica.path().name() + Colors.RESET);
@@ -84,6 +88,7 @@ public class Client extends AbstractActorWithStash {
     replica.tell(msg, getSelf());
   }
 
+  // Write Request
   private void onWriteRequest(Messages.WriteRequest msg) {
     ActorRef replica = this.replicas.get(ThreadLocalRandom.current().nextInt(this.replicas.size()));
     log.info(Colors.YELLOW + "Client " + this.clientId + " write request with value " + msg.value + " to " + replica.path().name() + Colors.RESET);
@@ -102,10 +107,12 @@ public class Client extends AbstractActorWithStash {
   }
 
 // --------------- RESPONSES ----------------
+  // Read Response
   private void onReadResponse(Messages.ReadResponse msg) {
     log.info(Colors.GREEN + "Client " + this.clientId + " read done " + msg.value + Colors.RESET);
   }
 
+  // Write Response
   private void onWriteResponse(Messages.WriteResponse msg) {
     log.info("Client " + this.clientId + " received write response from " + getSender().path().name() + " with outcome: "
         + (msg.success ? Colors.GREEN + "SUCCESS" + Colors.RESET : Colors.RED + "FAILED" + Colors.RESET));
